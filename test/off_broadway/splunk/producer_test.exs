@@ -179,6 +179,36 @@ defmodule OffBroadway.Splunk.ProducerTest do
     def receive_messages(_sid, _demand, _opts), do: {:error, {:http_error, 401}}
   end
 
+  defmodule Http403StatusSplunkClient do
+    @behaviour OffBroadway.Splunk.Client
+
+    @impl true
+    def init(opts) do
+      {:ok, Keyword.take(opts, [:test_pid]) |> Keyword.merge(opts[:config])}
+    end
+
+    @impl true
+    def receive_status(_name, _opts), do: {:ok, %{status: 403, body: %{}}}
+
+    @impl true
+    def receive_messages(_sid, _demand, _opts), do: {:ok, []}
+  end
+
+  defmodule Http401StatusSplunkClient do
+    @behaviour OffBroadway.Splunk.Client
+
+    @impl true
+    def init(opts) do
+      {:ok, Keyword.take(opts, [:test_pid]) |> Keyword.merge(opts[:config])}
+    end
+
+    @impl true
+    def receive_status(_name, _opts), do: {:ok, %{status: 401, body: %{}}}
+
+    @impl true
+    def receive_messages(_sid, _demand, _opts), do: {:ok, []}
+  end
+
   defp prepare_for_start_module_opts(module_opts) do
     {:ok, message_server} = MessageServer.start_link()
     {:ok, pid} = start_broadway(message_server)
@@ -593,6 +623,51 @@ defmodule OffBroadway.Splunk.ProducerTest do
       broadway_name = new_unique_name()
       {:ok, message_server} = MessageServer.start_link()
       {:ok, pid} = start_broadway(message_server, broadway_name, splunk_client: Http401MessageSplunkClient)
+
+      ref = Process.monitor(pid)
+      assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 5000
+    end
+
+    test "emits [:off_broadway_splunk, :receive_jobs, :error] on non-200 job list response" do
+      Process.flag(:trap_exit, true)
+      on_exit(fn -> Process.flag(:trap_exit, false) end)
+
+      self = self()
+
+      :ok =
+        :telemetry.attach(
+          "receive_jobs_error_test",
+          [:off_broadway_splunk, :receive_jobs, :error],
+          fn name, measurements, metadata, _ ->
+            send(self, {:telemetry_event, name, measurements, metadata})
+          end,
+          nil
+        )
+
+      {:ok, message_server} = MessageServer.start_link()
+
+      {:ok, pid} =
+        start_broadway(message_server, new_unique_name(), splunk_client: Http403StatusSplunkClient)
+
+      assert_receive {:telemetry_event,
+                      [:off_broadway_splunk, :receive_jobs, :error],
+                      %{time: _},
+                      %{name: _, status: 403}},
+                     2000
+
+      :telemetry.detach("receive_jobs_error_test")
+      stop_broadway(pid)
+    end
+
+    test "stops the producer on 401 from receive_jobs" do
+      Process.flag(:trap_exit, true)
+      on_exit(fn -> Process.flag(:trap_exit, false) end)
+
+      broadway_name = new_unique_name()
+      {:ok, message_server} = MessageServer.start_link()
+
+      {:ok, pid} =
+        start_broadway(message_server, broadway_name, splunk_client: Http401StatusSplunkClient)
 
       ref = Process.monitor(pid)
       assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 5000

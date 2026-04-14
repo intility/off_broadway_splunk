@@ -243,28 +243,33 @@ defmodule OffBroadway.Splunk.Producer do
     {:noreply, [], %{state | drain: true, receive_timer: nil, refetch_timer: nil}}
   end
 
-  @spec handle_receive_jobs(state :: map()) :: {:noreply, [], new_state :: map()}
+  @spec handle_receive_jobs(state :: map()) :: {:noreply, [], new_state :: map()} | {:stop, any(), map()}
   defp handle_receive_jobs(%{refetch_timer: nil} = state) do
-    new_state =
-      receive_jobs_from_splunk(state)
-      |> update_queue_from_response(state)
+    case receive_jobs_from_splunk(state) do
+      {:ok, _} = response ->
+        new_state = update_queue_from_response(response, state)
 
-    case new_state do
-      %{current_job: nil, queue: {[], []}} ->
-        {:noreply, [], %{new_state | refetch_timer: schedule_receive_jobs(state.refetch_interval)}}
+        case new_state do
+          %{current_job: nil, queue: {[], []}} ->
+            {:noreply, [], %{new_state | refetch_timer: schedule_receive_jobs(state.refetch_interval)}}
 
-      %{current_job: nil, queue: _queue} ->
-        {:noreply, [],
-         %{
-           new_state
-           | receive_timer: schedule_next_job(0),
-             refetch_timer: schedule_receive_jobs(state.refetch_interval)
-         }}
+          %{current_job: nil, queue: _queue} ->
+            {:noreply, [],
+             %{
+               new_state
+               | receive_timer: schedule_next_job(0),
+                 refetch_timer: schedule_receive_jobs(state.refetch_interval)
+             }}
 
-      _state ->
-        # A job is currently being processed; new jobs may have been added to the queue.
-        # Continue the refetch loop and let the current job finish normally.
-        {:noreply, [], %{new_state | refetch_timer: schedule_receive_jobs(state.refetch_interval)}}
+          _state ->
+            {:noreply, [], %{new_state | refetch_timer: schedule_receive_jobs(state.refetch_interval)}}
+        end
+
+      {:error, {:http_error, status}} when status in [401, 403] ->
+        {:stop, :unauthorized, state}
+
+      {:error, _reason} ->
+        {:noreply, [], %{state | refetch_timer: schedule_receive_jobs(state.refetch_interval)}}
     end
   end
 
@@ -323,10 +328,14 @@ defmodule OffBroadway.Splunk.Producer do
            queue: {[], []}
          } = state
        ) do
-    with {:ok, response} <- receive_jobs_from_splunk(state),
-         new_state <- update_queue_from_response({:ok, response}, state) do
-      {:noreply, [], %{new_state | receive_timer: schedule_receive_messages(0)}}
-    else
+    case receive_jobs_from_splunk(state) do
+      {:ok, _} = response ->
+        new_state = update_queue_from_response(response, state)
+        {:noreply, [], %{new_state | receive_timer: schedule_receive_messages(0)}}
+
+      {:error, {:http_error, status}} when status in [401, 403] ->
+        {:stop, :unauthorized, state}
+
       {:error, _reason} ->
         {:noreply, [], %{state | receive_timer: schedule_receive_messages(state.receive_interval)}}
     end
@@ -390,10 +399,22 @@ defmodule OffBroadway.Splunk.Producer do
           {:ok, %{status: 200, body: %{"entry" => jobs}}} = response ->
             {response, %{metadata | count: length(jobs)}}
 
-          {:ok, %{status: _status}} = response ->
-            {response, metadata}
+          {:ok, %{status: status_code}} ->
+            :telemetry.execute(
+              [:off_broadway_splunk, :receive_jobs, :error],
+              %{time: System.system_time()},
+              %{name: name, status: status_code}
+            )
+
+            {{:error, {:http_error, status_code}}, metadata}
 
           {:error, reason} ->
+            :telemetry.execute(
+              [:off_broadway_splunk, :receive_jobs, :error],
+              %{time: System.system_time()},
+              %{name: name, reason: reason}
+            )
+
             {{:error, reason}, metadata}
         end
       end
@@ -473,7 +494,7 @@ defmodule OffBroadway.Splunk.Producer do
   end
 
   @spec update_queue_from_response(
-          response :: {:ok, Tesla.Env.t()} | {:error, any()},
+          response :: {:ok, Tesla.Env.t()},
           state :: map()
         ) ::
           new_state :: map()
@@ -512,9 +533,6 @@ defmodule OffBroadway.Splunk.Producer do
 
     %{state | queue: new_queue, completed_jobs: completed_jobs, first_fetch: false}
   end
-
-  defp update_queue_from_response({:ok, _response}, state), do: state
-  defp update_queue_from_response({:error, _reason}, state), do: state
 
   @spec only_latest?(list :: list(), flag :: atom()) :: list()
   defp only_latest?(list, :latest), do: Enum.take(list, -1)
