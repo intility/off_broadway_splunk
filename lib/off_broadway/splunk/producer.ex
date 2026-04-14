@@ -177,8 +177,6 @@ defmodule OffBroadway.Splunk.Producer do
   @impl true
   def prepare_for_start(_module, broadway_opts) do
     {producer_module, client_opts} = broadway_opts[:producer][:module]
-    client_opts = preprocess_options(client_opts)
-
     case NimbleOptions.validate(client_opts, Options.definition()) do
       {:error, error} ->
         raise ArgumentError, format_error(error)
@@ -197,15 +195,6 @@ defmodule OffBroadway.Splunk.Producer do
 
         {[], with_default_opts}
     end
-  end
-
-  # NOTE Remove next major release when :only_new and :only_latest are removed.
-  defp preprocess_options(opts) do
-    Enum.reduce(opts, [], fn
-      {:only_new, true}, acc -> Keyword.put_new(acc, :jobs, :new)
-      {:only_latest, true}, acc -> Keyword.put_new(acc, :jobs, :latest)
-      {key, value}, acc -> Keyword.put(acc, key, value)
-    end)
   end
 
   defp format_error(%ValidationError{keys_path: [], message: message}) do

@@ -354,30 +354,6 @@ defmodule OffBroadway.Splunk.ProducerTest do
       assert result_module_opts[:config][:max_events] == 10
     end
 
-    test "when :only_latest is true sets jobs: :latest" do
-      assert {[],
-              [
-                producer: [
-                  module: {Producer, result_module_opts},
-                  concurrency: 1
-                ]
-              ]} = prepare_for_start_module_opts(name: "My fine report", only_latest: true)
-
-      assert result_module_opts[:jobs] == :latest
-    end
-
-    test "when :only_new is true sets jobs: :new" do
-      assert {[],
-              [
-                producer: [
-                  module: {Producer, result_module_opts},
-                  concurrency: 1
-                ]
-              ]} = prepare_for_start_module_opts(name: "My fine report", only_new: true)
-
-      assert result_module_opts[:jobs] == :new
-    end
-
     test "when :jobs is an invalid value" do
       assert_raise(
         ArgumentError,
