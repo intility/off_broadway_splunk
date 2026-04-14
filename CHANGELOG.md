@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.0.0](https://github.com/intility/off_broadway_splunk/compare/v2.1.4...v3.0.0) (2026-04-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* add telemetry error events and stop producer on auth failures (v3.0.0) ([#14](https://github.com/intility/off_broadway_splunk/issues/14))
+
+### Features
+
+* add telemetry error events and stop producer on auth failures (v3.0.0) ([#14](https://github.com/intility/off_broadway_splunk/issues/14)) ([46fba50](https://github.com/intility/off_broadway_splunk/commit/46fba506f32d92057582d7ef933b366c55cc1f92))
+
 ## [2.1.4](https://github.com/intility/off_broadway_splunk/compare/v2.1.3...v2.1.4) (2026-04-14)
 
 ### Bug Fixes
