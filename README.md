@@ -1,6 +1,10 @@
 # OffBroadway.Splunk
 
-![pipeline status](https://github.com/Intility/off_broadway_splunk/actions/workflows/elixir.yaml/badge.svg?event=push)
+[![Test](https://github.com/intility/off_broadway_splunk/actions/workflows/test.yaml/badge.svg)](https://github.com/intility/off_broadway_splunk/actions/workflows/test.yaml)
+[![License: MIT](https://img.shields.io/badge/License-Apache%202.0-yellow.svg)](https://opensource.org/license/Apache-2.0)
+[![Hex version badge](https://img.shields.io/hexpm/v/off_broadway_splunk.svg)](https://hex.pm/packages/off_broadway_splunk)
+[![Hexdocs badge](https://img.shields.io/badge/docs-hexdocs-purple)](https://hexdocs.pm/off_broadway_splunk/readme.html)
+
 
 A Splunk consumer for [Broadway](https://github.com/dashbitco/broadway).
 
