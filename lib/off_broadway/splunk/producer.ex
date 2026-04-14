@@ -370,7 +370,7 @@ defmodule OffBroadway.Splunk.Producer do
     {:noreply, [], %{state | receive_timer: schedule_receive_messages(state.receive_interval)}}
   end
 
-  @spec receive_jobs_from_splunk(state :: map()) :: {:ok, Tesla.Env.t()}
+  @spec receive_jobs_from_splunk(state :: map()) :: {:ok, Tesla.Env.t()} | {:error, any()}
   defp receive_jobs_from_splunk(%{name: name, splunk_client: {client, client_opts}}) do
     metadata = %{name: name, count: 0}
 
@@ -491,7 +491,7 @@ defmodule OffBroadway.Splunk.Producer do
   end
 
   @spec calculate_count(
-          client_opts :: map(),
+          client_opts :: keyword(),
           demand :: non_neg_integer(),
           processed_events :: non_neg_integer()
         ) :: non_neg_integer()
