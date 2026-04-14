@@ -65,15 +65,18 @@ defmodule OffBroadway.Splunk.ProducerTest do
       messages = MessageServer.take_messages(opts[:message_server], demand)
       send(opts[:test_pid], {:messages_received, length(messages)})
 
-      for msg <- messages do
-        ack_data = %{
-          receipt: %{id: "splunk.example.com;my-index;329:7062435"},
-          test_pid: opts[:test_pid]
-        }
+      result =
+        for msg <- messages do
+          ack_data = %{
+            receipt: %{id: "splunk.example.com;my-index;329:7062435"},
+            test_pid: opts[:test_pid]
+          }
 
-        metadata = %{custom: "custom-data"}
-        %Message{data: msg, metadata: metadata, acknowledger: {__MODULE__, :ack_ref, ack_data}}
-      end
+          metadata = %{custom: "custom-data"}
+          %Message{data: msg, metadata: metadata, acknowledger: {__MODULE__, :ack_ref, ack_data}}
+        end
+
+      {:ok, result}
     end
 
     @impl true
