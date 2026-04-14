@@ -52,7 +52,7 @@ defmodule OffBroadway.Splunk.MixProject do
   defp deps do
     [
       {:broadway, "~> 1.0"},
-      {:credo, "~> 1.7", only: :dev},
+      {:credo, "~> 1.7", only: [:dev, :test]},
       {:dialyxir, ">= 0.0.0", only: [:dev, :test], runtime: false},
       {:decimal, "~> 2.0"},
       {:excoveralls, "~> 0.18.0", only: :test},
