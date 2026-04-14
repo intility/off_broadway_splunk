@@ -357,7 +357,7 @@ defmodule OffBroadway.Splunk.Producer do
         {:noreply, messages, %{new_state | demand: new_demand, receive_timer: receive_timer}}
 
       {:error, _reason, new_state} ->
-        {:noreply, [], %{new_state | receive_timer: schedule_next_job(new_state.receive_interval)}}
+        {:noreply, [], %{new_state | receive_timer: schedule_receive_messages(new_state.receive_interval)}}
 
       {:stop, reason, new_state} ->
         {:stop, reason, new_state}
@@ -463,8 +463,8 @@ defmodule OffBroadway.Splunk.Producer do
           {:error, {:http_error, status}} when status in [401, 403] ->
             {:stop, :unauthorized, state}
 
-          {:error, _reason} ->
-            {:error, :fetch_failed, state}
+          {:error, reason} ->
+            {:error, reason, state}
 
           messages ->
             {:ok, messages, state}
