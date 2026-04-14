@@ -1,5 +1,27 @@
 # Changelog
 
+## 3.0.0 - Major release
+
+_Released 2026-04-14_
+
+### Breaking changes
+
+- `OffBroadway.Splunk.Client.receive_messages/3` callback now returns
+  `{:ok, [Broadway.Message.t()]} | {:error, reason}` instead of `[Broadway.Message.t()]`.
+  Custom client implementations must be updated to wrap their result in `{:ok, list}`.
+
+### New features
+
+- Emit `[:off_broadway_splunk, :receive_status, :error]` telemetry when the Splunk status
+  endpoint returns a network error.
+- Emit `[:off_broadway_splunk, :receive_jobs, :error]` telemetry when the job list fetch
+  fails (non-200 response or network error).
+- Emit `[:off_broadway_splunk, :receive_messages, :error]` telemetry when an event fetch
+  fails (non-200 response or network error).
+- The producer stops itself on HTTP 401 or 403 from either the job list or event fetch
+  endpoints, allowing Broadway's supervisor to restart it or leave it stopped after
+  exhausting restarts.
+
 ## 2.1.3 - Patch release
 
 _Released 2024-08-20_
