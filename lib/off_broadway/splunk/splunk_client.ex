@@ -118,15 +118,18 @@ defmodule OffBroadway.Splunk.SplunkClient do
          sid,
          ack_ref
        ) do
-    Stream.map(messages, fn message ->
-      metadata =
-        Map.filter(message, fn {key, _val} -> String.starts_with?(key, "_") and key != "_raw" end)
-        |> Map.put("sid", sid)
+    messages =
+      Stream.map(messages, fn message ->
+        metadata =
+          Map.filter(message, fn {key, _val} -> String.starts_with?(key, "_") and key != "_raw" end)
+          |> Map.put("sid", sid)
 
-      acknowledger = build_acknowledger(message, sid, ack_ref)
-      %Message{data: message, metadata: metadata, acknowledger: acknowledger}
-    end)
-    |> Enum.to_list()
+        acknowledger = build_acknowledger(message, sid, ack_ref)
+        %Message{data: message, metadata: metadata, acknowledger: acknowledger}
+      end)
+      |> Enum.to_list()
+
+    {:ok, messages}
   end
 
   defp wrap_received_messages({:ok, %Tesla.Env{status: status_code}}, sid, _ack_ref) do
@@ -135,7 +138,7 @@ defmodule OffBroadway.Splunk.SplunkClient do
         "Request failed with status code: #{status_code}."
     )
 
-    []
+    {:error, {:http_error, status_code}}
   end
 
   defp wrap_received_messages({:error, reason}, sid, _ack_ref) do
@@ -144,7 +147,7 @@ defmodule OffBroadway.Splunk.SplunkClient do
         "Request failed with reason: #{inspect(reason)}."
     )
 
-    []
+    {:error, reason}
   end
 
   defp build_acknowledger(message, sid, ack_ref) do

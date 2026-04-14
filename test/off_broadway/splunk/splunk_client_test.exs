@@ -84,11 +84,11 @@ defmodule OffBroadway.Splunk.SplunkClientTest do
               ]} = SplunkClient.init(base_opts)
     end
 
-    test "returns a list of Broadway.Message with :data and :acknowledger set", %{
+    test "returns {:ok, list} of Broadway.Message with :data and :acknowledger set", %{
       base_opts: base_opts
     } do
       {:ok, opts} = SplunkClient.init(base_opts)
-      [message1, message2] = SplunkClient.receive_messages(@sid1, 10, opts)
+      {:ok, [message1, message2]} = SplunkClient.receive_messages(@sid1, 10, opts)
 
       assert message1.data == @message1
       assert message2.data == @message2
@@ -103,20 +103,22 @@ defmodule OffBroadway.Splunk.SplunkClientTest do
                 }}
     end
 
-    test "if the request fails, returns an empty list and log the error", %{base_opts: base_opts} do
+    test "if the request fails with non-200, returns {:error, {:http_error, status}}", %{
+      base_opts: base_opts
+    } do
       {:ok, opts} = SplunkClient.init(base_opts)
 
       assert capture_log(fn ->
-               assert [] == SplunkClient.receive_messages(@sid2, 10, opts)
-             end) =~ """
-             [debug] [{"level", "FATAL"}, {"reason", "Unknown sid."}, {"source", "splunk"}]
-             """
+               assert {:error, {:http_error, 404}} = SplunkClient.receive_messages(@sid2, 10, opts)
+             end) =~ "[debug]"
+    end
+
+    test "if the request fails with network error, returns {:error, reason}", %{base_opts: base_opts} do
+      {:ok, opts} = SplunkClient.init(base_opts)
 
       assert capture_log(fn ->
-               assert [] == SplunkClient.receive_messages(@sid3, 10, opts)
-             end) =~ """
-             [error] Unable to fetch events from Splunk SID \"#{@sid3}\". Request failed with reason: :timeout.
-             """
+               assert {:error, :timeout} = SplunkClient.receive_messages(@sid3, 10, opts)
+             end) =~ "Unable to fetch events from Splunk SID"
     end
   end
 
