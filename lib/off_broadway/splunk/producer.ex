@@ -104,7 +104,7 @@ defmodule OffBroadway.Splunk.Producer do
     * `[:off_broadway_splunk, :receive_messages, :ack]` - Dispatched when acking a message.
 
       * measurement: `%{time: System.system_time, count: 1}`
-      * meatadata:
+      * metadata:
 
         ```
         %{
@@ -412,6 +412,8 @@ defmodule OffBroadway.Splunk.Producer do
   defp receive_jobs_from_splunk(%{name: name, splunk_client: {client, client_opts}}) do
     metadata = %{name: name, count: 0}
 
+    # The :error event is emitted explicitly inside the span for error conditions.
+    # The span still emits :start/:stop on all paths.
     :telemetry.span(
       [:off_broadway_splunk, :receive_jobs],
       metadata,
@@ -466,6 +468,10 @@ defmodule OffBroadway.Splunk.Producer do
         {:ok, [], state}
 
       _ ->
+        # The :error event is emitted explicitly inside the span for error conditions.
+        # The span itself still emits :start/:stop events (not :exception, since we
+        # handle errors as normal return values). Consumers can distinguish errors by
+        # listening to the :error event; the :stop event fires on all paths.
         result =
           :telemetry.span(
             [:off_broadway_splunk, :receive_messages],

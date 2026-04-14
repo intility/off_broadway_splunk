@@ -209,6 +209,35 @@ defmodule OffBroadway.Splunk.ProducerTest do
     def receive_messages(_sid, _demand, _opts), do: {:ok, []}
   end
 
+  defmodule Http403MessageSplunkClient do
+    @behaviour OffBroadway.Splunk.Client
+
+    @impl true
+    def init(opts) do
+      {:ok, Keyword.take(opts, [:test_pid]) |> Keyword.merge(opts[:config])}
+    end
+
+    @impl true
+    def receive_status(_name, _opts) do
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "entry" => [
+             %{
+               "name" => "test-job",
+               "published" => "2022-06-28T15:00:02.000+02:00",
+               "content" => %{"isDone" => true, "isScheduled" => true, "isZombie" => false}
+             }
+           ]
+         }
+       }}
+    end
+
+    @impl true
+    def receive_messages(_sid, _demand, _opts), do: {:error, {:http_error, 403}}
+  end
+
   defp prepare_for_start_module_opts(module_opts) do
     {:ok, message_server} = MessageServer.start_link()
     {:ok, pid} = start_broadway(message_server)
@@ -623,6 +652,20 @@ defmodule OffBroadway.Splunk.ProducerTest do
       broadway_name = new_unique_name()
       {:ok, message_server} = MessageServer.start_link()
       {:ok, pid} = start_broadway(message_server, broadway_name, splunk_client: Http401MessageSplunkClient)
+
+      ref = Process.monitor(pid)
+      assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 5000
+    end
+
+    test "stops the producer on 403 from receive_messages" do
+      Process.flag(:trap_exit, true)
+      on_exit(fn -> Process.flag(:trap_exit, false) end)
+
+      broadway_name = new_unique_name()
+      {:ok, message_server} = MessageServer.start_link()
+
+      {:ok, pid} =
+        start_broadway(message_server, broadway_name, splunk_client: Http403MessageSplunkClient)
 
       ref = Process.monitor(pid)
       assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 5000
