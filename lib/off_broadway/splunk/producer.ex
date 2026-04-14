@@ -177,6 +177,7 @@ defmodule OffBroadway.Splunk.Producer do
   @impl true
   def prepare_for_start(_module, broadway_opts) do
     {producer_module, client_opts} = broadway_opts[:producer][:module]
+
     case NimbleOptions.validate(client_opts, Options.definition()) do
       {:error, error} ->
         raise ArgumentError, format_error(error)
