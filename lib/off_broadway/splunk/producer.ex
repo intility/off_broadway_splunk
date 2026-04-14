@@ -341,19 +341,27 @@ defmodule OffBroadway.Splunk.Producer do
          } = state
        )
        when demand > 0 do
-    {messages, new_state} = receive_messages_from_splunk(state, demand)
-    new_demand = demand - length(messages)
-    max_events = client_opts[:max_events]
-    total_events = :counters.get(state.processed_events, 2)
+    case receive_messages_from_splunk(state, demand) do
+      {:ok, messages, new_state} ->
+        new_demand = demand - length(messages)
+        max_events = client_opts[:max_events]
+        total_events = :counters.get(state.processed_events, 2)
 
-    receive_timer =
-      case {total_events, messages, new_state} do
-        {^max_events, _messages, _state} -> schedule_shutdown()
-        {_total_events, [], %{receive_interval: interval}} -> schedule_next_job(interval)
-        {_total_events, _messages, _state} -> schedule_receive_messages(0)
-      end
+        receive_timer =
+          case {total_events, messages, new_state} do
+            {^max_events, _messages, _state} -> schedule_shutdown()
+            {_total_events, [], %{receive_interval: interval}} -> schedule_next_job(interval)
+            {_total_events, _messages, _state} -> schedule_receive_messages(0)
+          end
 
-    {:noreply, messages, %{new_state | demand: new_demand, receive_timer: receive_timer}}
+        {:noreply, messages, %{new_state | demand: new_demand, receive_timer: receive_timer}}
+
+      {:error, _reason, new_state} ->
+        {:noreply, [], %{new_state | receive_timer: schedule_next_job(new_state.receive_interval)}}
+
+      {:stop, reason, new_state} ->
+        {:stop, reason, new_state}
+    end
   end
 
   defp handle_receive_messages(%{current_job: nil, receive_timer: nil} = state) do
@@ -393,7 +401,9 @@ defmodule OffBroadway.Splunk.Producer do
   end
 
   @spec receive_messages_from_splunk(state :: map(), demand :: non_neg_integer()) ::
-          {messages :: list(), state :: map()}
+          {:ok, messages :: list(), state :: map()}
+          | {:error, reason :: any(), state :: map()}
+          | {:stop, reason :: any(), state :: map()}
   defp receive_messages_from_splunk(
          %{name: name, current_job: job, splunk_client: {client, client_opts}} = state,
          demand
@@ -411,26 +421,54 @@ defmodule OffBroadway.Splunk.Producer do
 
     case count do
       0 ->
-        {[], state}
+        {:ok, [], state}
 
       _ ->
-        messages =
+        result =
           :telemetry.span(
             [:off_broadway_splunk, :receive_messages],
             metadata,
             fn ->
-              with messages <- client.receive_messages(job.name, demand, client_opts),
-                   count <- length(messages),
-                   :ok <- :counters.add(state.processed_events, 1, count),
-                   :ok <- :counters.add(state.processed_events, 2, count),
-                   :ok <- :counters.add(state.processed_requests, 1, 1),
-                   :ok <- :counters.add(state.processed_requests, 2, 1) do
-                {messages, Map.put(metadata, :received, count)}
+              case client.receive_messages(job.name, demand, client_opts) do
+                {:ok, messages} ->
+                  msg_count = length(messages)
+                  :ok = :counters.add(state.processed_events, 1, msg_count)
+                  :ok = :counters.add(state.processed_events, 2, msg_count)
+                  :ok = :counters.add(state.processed_requests, 1, 1)
+                  :ok = :counters.add(state.processed_requests, 2, 1)
+                  {messages, Map.put(metadata, :received, msg_count)}
+
+                {:error, {:http_error, status}} ->
+                  :telemetry.execute(
+                    [:off_broadway_splunk, :receive_messages, :error],
+                    %{time: System.system_time()},
+                    Map.put(metadata, :status, status)
+                  )
+
+                  {{:error, {:http_error, status}}, metadata}
+
+                {:error, reason} ->
+                  :telemetry.execute(
+                    [:off_broadway_splunk, :receive_messages, :error],
+                    %{time: System.system_time()},
+                    Map.put(metadata, :reason, reason)
+                  )
+
+                  {{:error, reason}, metadata}
               end
             end
           )
 
-        {messages, state}
+        case result do
+          {:error, {:http_error, status}} when status in [401, 403] ->
+            {:stop, :unauthorized, state}
+
+          {:error, _reason} ->
+            {:error, :fetch_failed, state}
+
+          messages ->
+            {:ok, messages, state}
+        end
     end
   end
 
