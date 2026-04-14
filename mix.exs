@@ -25,7 +25,7 @@ defmodule OffBroadway.Splunk.MixProject do
         source_url: @source_url,
         extras: [
           "README.md",
-          "Changelog.md",
+          "CHANGELOG.md",
           "LICENSE"
         ]
       ],

@@ -23,7 +23,7 @@ by adding `off_broadway_splunk` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:off_broadway_splunk, "~> 2.0"}
+    {:off_broadway_splunk, "~> 3.0"}
   ]
 end
 ```
