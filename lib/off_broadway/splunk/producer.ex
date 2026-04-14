@@ -112,6 +112,27 @@ defmodule OffBroadway.Splunk.Producer do
           receipt: receipt
         }
         ```
+
+    * `[:off_broadway_splunk, :receive_status, :error]` - Dispatched when the Splunk API returns
+      a network error while checking job status.
+
+      * measurement: `%{time: System.system_time}`
+      * metadata: `%{name: string, reason: term}`
+
+    * `[:off_broadway_splunk, :receive_jobs, :error]` - Dispatched when fetching the job list
+      fails, either due to a non-200 HTTP response or a network error.
+
+      * measurement: `%{time: System.system_time}`
+      * metadata (HTTP error): `%{name: string, status: integer}`
+      * metadata (network error): `%{name: string, reason: term}`
+
+    * `[:off_broadway_splunk, :receive_messages, :error]` - Dispatched when fetching events
+      for a job fails, either due to a non-200 HTTP response or a network error. A 401 or 403
+      status will also cause the producer to stop.
+
+      * measurement: `%{time: System.system_time}`
+      * metadata (HTTP error): `%{name: string, sid: string, demand: integer, status: integer}`
+      * metadata (network error): `%{name: string, sid: string, demand: integer, reason: term}`
   """
 
   use GenStage
