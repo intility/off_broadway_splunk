@@ -12,4 +12,5 @@ case config_env() do
 
   :test ->
     config :tesla, adapter: Tesla.Mock
+    config :logger, :console, colors: [enabled: false]
 end
