@@ -110,7 +110,7 @@ defmodule OffBroadway.Splunk.SplunkClientTest do
 
       assert capture_log(fn ->
                assert {:error, {:http_error, 404}} = SplunkClient.receive_messages(@sid2, 10, opts)
-             end) =~ "[debug]"
+             end) =~ "Unable to fetch events from Splunk SID"
     end
 
     test "if the request fails with network error, returns {:error, reason}", %{base_opts: base_opts} do
