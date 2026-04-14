@@ -715,7 +715,6 @@ defmodule OffBroadway.Splunk.ProducerTest do
                       %{name: "My fine report", reason: :unauthorized}},
                      5000
     end
-
   end
 
   defp start_broadway(message_server, broadway_name \\ new_unique_name(), opts \\ []) do
