@@ -1,8 +1,8 @@
 defmodule OffBroadway.Splunk.SplunkClientTest do
   use ExUnit.Case, async: false
 
-  alias OffBroadway.Splunk.SplunkClient
   alias Broadway.Message
+  alias OffBroadway.Splunk.SplunkClient
 
   import ExUnit.CaptureLog
   import Tesla.Mock

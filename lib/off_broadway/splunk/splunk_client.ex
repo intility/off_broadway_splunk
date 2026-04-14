@@ -14,7 +14,7 @@ defmodule OffBroadway.Splunk.SplunkClient do
   for more information.
   """
 
-  alias Broadway.{Message, Acknowledger}
+  alias Broadway.{Acknowledger, Message}
   require Logger
 
   @behaviour Acknowledger

@@ -7,7 +7,8 @@ defmodule OffBroadway.Splunk.ProducerTest do
   import ExUnit.CaptureLog
 
   require Logger
-  alias Broadway.Message
+  alias Broadway.{Message, Topology}
+  alias OffBroadway.Splunk.Producer
 
   defmodule MessageServer do
     def start_link, do: Agent.start_link(fn -> [] end)
@@ -122,9 +123,9 @@ defmodule OffBroadway.Splunk.ProducerTest do
     {:ok, pid} = start_broadway(message_server)
 
     try do
-      OffBroadway.Splunk.Producer.prepare_for_start(Forwarder,
+      Producer.prepare_for_start(Forwarder,
         producer: [
-          module: {OffBroadway.Splunk.Producer, module_opts},
+          module: {Producer, module_opts},
           concurrency: 1
         ]
       )
@@ -172,7 +173,7 @@ defmodule OffBroadway.Splunk.ProducerTest do
       assert {[],
               [
                 producer: [
-                  module: {OffBroadway.Splunk.Producer, result_module_opts},
+                  module: {Producer, result_module_opts},
                   concurrency: 1
                 ]
               ]} = prepare_for_start_module_opts(name: "My fine report")
@@ -197,7 +198,7 @@ defmodule OffBroadway.Splunk.ProducerTest do
       assert {[],
               [
                 producer: [
-                  module: {OffBroadway.Splunk.Producer, result_module_opts},
+                  module: {Producer, result_module_opts},
                   concurrency: 1
                 ]
               ]} =
@@ -217,7 +218,7 @@ defmodule OffBroadway.Splunk.ProducerTest do
       assert {[],
               [
                 producer: [
-                  module: {OffBroadway.Splunk.Producer, result_module_opts},
+                  module: {Producer, result_module_opts},
                   concurrency: 1
                 ]
               ]} =
@@ -237,7 +238,7 @@ defmodule OffBroadway.Splunk.ProducerTest do
       assert {[],
               [
                 producer: [
-                  module: {OffBroadway.Splunk.Producer, result_module_opts},
+                  module: {Producer, result_module_opts},
                   concurrency: 1
                 ]
               ]} = prepare_for_start_module_opts(name: "My fine report", only_latest: true)
@@ -249,7 +250,7 @@ defmodule OffBroadway.Splunk.ProducerTest do
       assert {[],
               [
                 producer: [
-                  module: {OffBroadway.Splunk.Producer, result_module_opts},
+                  module: {Producer, result_module_opts},
                   concurrency: 1
                 ]
               ]} = prepare_for_start_module_opts(name: "My fine report", only_new: true)
@@ -274,7 +275,7 @@ defmodule OffBroadway.Splunk.ProducerTest do
       assert {[],
               [
                 producer: [
-                  module: {OffBroadway.Splunk.Producer, result_module_opts},
+                  module: {Producer, result_module_opts},
                   concurrency: 1
                 ]
               ]} = prepare_for_start_module_opts(name: "My fine report")
@@ -299,7 +300,7 @@ defmodule OffBroadway.Splunk.ProducerTest do
       assert {[],
               [
                 producer: [
-                  module: {OffBroadway.Splunk.Producer, result_module_opts},
+                  module: {Producer, result_module_opts},
                   concurrency: 1
                 ]
               ]} =
@@ -432,7 +433,7 @@ defmodule OffBroadway.Splunk.ProducerTest do
       assert_receive {:messages_received, 0}
 
       # Drain and explicitly ask it to receive messages but it shouldn't work
-      Broadway.Topology.ProducerStage.drain(producer)
+      Topology.ProducerStage.drain(producer)
       send(producer, :receive_messages)
 
       refute_receive {:messages_received, _}, 10
@@ -524,7 +525,7 @@ defmodule OffBroadway.Splunk.ProducerTest do
       name: broadway_name,
       context: %{test_pid: self()},
       producer: [
-        module: {OffBroadway.Splunk.Producer, Keyword.merge(producer_opts, opts)},
+        module: {Producer, Keyword.merge(producer_opts, opts)},
         concurrency: 1
       ],
       processors: [
@@ -540,7 +541,7 @@ defmodule OffBroadway.Splunk.ProducerTest do
     ]
   end
 
-  defp new_unique_name() do
+  defp new_unique_name do
     :"Broadway#{System.unique_integer([:positive, :monotonic])}"
   end
 

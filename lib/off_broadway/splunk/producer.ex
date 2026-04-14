@@ -117,7 +117,7 @@ defmodule OffBroadway.Splunk.Producer do
   use GenStage
   alias Broadway.Producer
   alias NimbleOptions.ValidationError
-  alias OffBroadway.Splunk.Job
+  alias OffBroadway.Splunk.{Job, Options}
 
   @behaviour Producer
 
@@ -158,7 +158,7 @@ defmodule OffBroadway.Splunk.Producer do
     {producer_module, client_opts} = broadway_opts[:producer][:module]
     client_opts = preprocess_options(client_opts)
 
-    case NimbleOptions.validate(client_opts, OffBroadway.Splunk.Options.definition()) do
+    case NimbleOptions.validate(client_opts, Options.definition()) do
       {:error, error} ->
         raise ArgumentError, format_error(error)
 
