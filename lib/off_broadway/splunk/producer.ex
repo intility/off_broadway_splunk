@@ -113,8 +113,10 @@ defmodule OffBroadway.Splunk.Producer do
         }
         ```
 
-    * `[:off_broadway_splunk, :receive_status, :error]` - Dispatched when the Splunk API returns
-      a network error while checking job status.
+    * `[:off_broadway_splunk, :producer, :stop]` - Dispatched when the producer process
+      terminates due to an error returned from a callback (e.g. `:unauthorized` after a
+      401/403 response). Note: this event does not fire for normal supervisor-initiated
+      shutdowns, since those bypass the callback mechanism.
 
       * measurement: `%{time: System.system_time}`
       * metadata: `%{name: string, reason: term}`
@@ -246,6 +248,15 @@ defmodule OffBroadway.Splunk.Producer do
   end
 
   def handle_info(_, state), do: {:noreply, [], state}
+
+  @impl true
+  def terminate(reason, state) do
+    :telemetry.execute(
+      [:off_broadway_splunk, :producer, :stop],
+      %{time: System.system_time()},
+      %{name: state.name, reason: reason}
+    )
+  end
 
   @impl Producer
   def prepare_for_draining(%{receive_timer: receive_timer, refetch_timer: refetch_timer} = state) do

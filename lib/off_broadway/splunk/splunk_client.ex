@@ -57,12 +57,6 @@ defmodule OffBroadway.Splunk.SplunkClient do
         {:ok, response}
 
       {:error, reason} ->
-        :telemetry.execute(
-          [:off_broadway_splunk, :receive_status, :error],
-          %{time: System.system_time()},
-          %{name: name, reason: reason}
-        )
-
         Logger.error(
           "Unable to fetch status for \"#{name}\". " <>
             "Request failed with reason: #{inspect(reason)}."

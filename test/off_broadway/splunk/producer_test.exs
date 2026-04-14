@@ -687,6 +687,35 @@ defmodule OffBroadway.Splunk.ProducerTest do
       ref = Process.monitor(pid)
       assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 5000
     end
+
+    test "emits [:off_broadway_splunk, :producer, :stop] with :unauthorized reason on auth failure" do
+      Process.flag(:trap_exit, true)
+      on_exit(fn -> Process.flag(:trap_exit, false) end)
+
+      self = self()
+
+      :ok =
+        :telemetry.attach(
+          "producer_stop_unauthorized_test",
+          [:off_broadway_splunk, :producer, :stop],
+          fn name, measurements, metadata, _ ->
+            send(self, {:telemetry_event, name, measurements, metadata})
+          end,
+          nil
+        )
+
+      on_exit(fn -> :telemetry.detach("producer_stop_unauthorized_test") end)
+
+      {:ok, message_server} = MessageServer.start_link()
+
+      {:ok, _pid} =
+        start_broadway(message_server, new_unique_name(), splunk_client: Http401MessageSplunkClient)
+
+      assert_receive {:telemetry_event, [:off_broadway_splunk, :producer, :stop], %{time: _},
+                      %{name: "My fine report", reason: :unauthorized}},
+                     5000
+    end
+
   end
 
   defp start_broadway(message_server, broadway_name \\ new_unique_name(), opts \\ []) do

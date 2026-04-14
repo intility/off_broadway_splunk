@@ -57,9 +57,6 @@ defmodule OffBroadway.Splunk.SplunkClientTest do
 
       %{method: :get, url: "https://splunk.example.com/services/search/v2/jobs/#{@sid3}/results"} ->
         {:error, :timeout}
-
-      %{method: :get, url: "https://splunk.example.com/services/saved/searches/test-report/history"} ->
-        {:error, :econnrefused}
     end)
   end
 
@@ -168,42 +165,6 @@ defmodule OffBroadway.Splunk.SplunkClientTest do
 
       assert_receive {:telemetry_event, [:off_broadway_splunk, :receive_messages, :ack], %{time: _},
                       %{name: _, receipt: _}}
-    end
-  end
-
-  describe "receive_status/2" do
-    setup do
-      self = self()
-
-      :ok =
-        :telemetry.attach(
-          "receive_status_error_test",
-          [:off_broadway_splunk, :receive_status, :error],
-          fn name, measurements, metadata, _ ->
-            send(self, {:telemetry_event, name, measurements, metadata})
-          end,
-          nil
-        )
-
-      on_exit(fn -> :telemetry.detach("receive_status_error_test") end)
-
-      {:ok,
-       %{
-         opts: [
-           base_url: "https://splunk.example.com",
-           api_token: "secret-api-token",
-           api_version: "v2"
-         ]
-       }}
-    end
-
-    test "emits [:off_broadway_splunk, :receive_status, :error] on network failure", %{opts: opts} do
-      capture_log(fn ->
-        SplunkClient.receive_status("test-report", opts)
-      end)
-
-      assert_receive {:telemetry_event, [:off_broadway_splunk, :receive_status, :error], %{time: _},
-                      %{name: "test-report", reason: :econnrefused}}
     end
   end
 
