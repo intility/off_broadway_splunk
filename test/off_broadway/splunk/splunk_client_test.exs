@@ -202,9 +202,7 @@ defmodule OffBroadway.Splunk.SplunkClientTest do
         SplunkClient.receive_status("test-report", opts)
       end)
 
-      assert_receive {:telemetry_event,
-                      [:off_broadway_splunk, :receive_status, :error],
-                      %{time: _},
+      assert_receive {:telemetry_event, [:off_broadway_splunk, :receive_status, :error], %{time: _},
                       %{name: "test-report", reason: :econnrefused}}
     end
   end

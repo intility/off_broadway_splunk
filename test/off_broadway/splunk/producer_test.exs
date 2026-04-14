@@ -635,9 +635,7 @@ defmodule OffBroadway.Splunk.ProducerTest do
       {:ok, message_server} = MessageServer.start_link()
       {:ok, pid} = start_broadway(message_server, new_unique_name(), splunk_client: Http404SplunkClient)
 
-      assert_receive {:telemetry_event,
-                      [:off_broadway_splunk, :receive_messages, :error],
-                      %{time: _},
+      assert_receive {:telemetry_event, [:off_broadway_splunk, :receive_messages, :error], %{time: _},
                       %{name: _, sid: _, demand: _, status: 404}},
                      2000
 
@@ -692,9 +690,7 @@ defmodule OffBroadway.Splunk.ProducerTest do
       {:ok, pid} =
         start_broadway(message_server, new_unique_name(), splunk_client: Http403StatusSplunkClient)
 
-      assert_receive {:telemetry_event,
-                      [:off_broadway_splunk, :receive_jobs, :error],
-                      %{time: _},
+      assert_receive {:telemetry_event, [:off_broadway_splunk, :receive_jobs, :error], %{time: _},
                       %{name: _, status: 403}},
                      2000
 
