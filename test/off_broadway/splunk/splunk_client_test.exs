@@ -161,8 +161,8 @@ defmodule OffBroadway.Splunk.SplunkClientTest do
         []
       )
 
-      assert_receive {:telemetry_event, [:off_broadway_splunk, :receive_messages, :ack],
-                      %{time: _}, %{name: _, receipt: _}}
+      assert_receive {:telemetry_event, [:off_broadway_splunk, :receive_messages, :ack], %{time: _},
+                      %{name: _, receipt: _}}
     end
   end
 

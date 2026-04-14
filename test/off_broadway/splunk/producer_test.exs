@@ -450,7 +450,6 @@ defmodule OffBroadway.Splunk.ProducerTest do
       stop_broadway(pid)
     end
 
-    # FIXME These tests are randomly failing, and I cannot understand why.
     test "emit a telemetry start event with demand" do
       self = self()
       {:ok, message_server} = MessageServer.start_link()
@@ -470,8 +469,8 @@ defmodule OffBroadway.Splunk.ProducerTest do
 
       MessageServer.push_messages(message_server, [2])
 
-      assert_receive {:telemetry_event, [:off_broadway_splunk, :receive_messages, :start],
-                      %{system_time: _}, %{sid: _, demand: 10}}
+      assert_receive {:telemetry_event, [:off_broadway_splunk, :receive_messages, :start], %{system_time: _},
+                      %{sid: _, demand: 10}}
 
       stop_broadway(pid)
     end
@@ -493,8 +492,8 @@ defmodule OffBroadway.Splunk.ProducerTest do
           )
       end)
 
-      assert_receive {:telemetry_event, [:off_broadway_splunk, :receive_messages, :stop],
-                      %{duration: _}, %{sid: _, received: _, demand: 10}}
+      assert_receive {:telemetry_event, [:off_broadway_splunk, :receive_messages, :stop], %{duration: _},
+                      %{sid: _, received: _, demand: 10}}
 
       stop_broadway(pid)
     end

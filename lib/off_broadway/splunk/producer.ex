@@ -251,8 +251,7 @@ defmodule OffBroadway.Splunk.Producer do
 
     case new_state do
       %{current_job: nil, queue: {[], []}} ->
-        {:noreply, [],
-         %{new_state | refetch_timer: schedule_receive_jobs(state.refetch_interval)}}
+        {:noreply, [], %{new_state | refetch_timer: schedule_receive_jobs(state.refetch_interval)}}
 
       %{current_job: nil, queue: _queue} ->
         {:noreply, [],
@@ -269,9 +268,7 @@ defmodule OffBroadway.Splunk.Producer do
     end
   end
 
-  defp handle_next_job(
-         %{current_job: current, completed_jobs: completed, receive_timer: nil} = state
-       ) do
+  defp handle_next_job(%{current_job: current, completed_jobs: completed, receive_timer: nil} = state) do
     unless is_nil(current) do
       :telemetry.execute(
         [:off_broadway_splunk, :process_job, :stop],
@@ -331,8 +328,7 @@ defmodule OffBroadway.Splunk.Producer do
       {:noreply, [], %{new_state | receive_timer: schedule_receive_messages(0)}}
     else
       {:error, _reason} ->
-        {:noreply, [],
-         %{state | receive_timer: schedule_receive_messages(state.receive_interval)}}
+        {:noreply, [], %{state | receive_timer: schedule_receive_messages(state.receive_interval)}}
     end
   end
 
@@ -366,8 +362,7 @@ defmodule OffBroadway.Splunk.Producer do
         {:noreply, [], %{state | receive_timer: schedule_next_job(0)}}
 
       :empty ->
-        {:noreply, [],
-         %{state | receive_timer: schedule_receive_messages(state.receive_interval)}}
+        {:noreply, [], %{state | receive_timer: schedule_receive_messages(state.receive_interval)}}
     end
   end
 
