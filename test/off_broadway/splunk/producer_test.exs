@@ -26,21 +26,27 @@ defmodule OffBroadway.Splunk.ProducerTest do
     @impl true
     def init(opts) do
       client_opts =
-        Keyword.take(opts, [:message_server, :test_pid])
+        Keyword.take(opts, [:message_server, :test_pid, :job_epoch])
         |> Keyword.merge(opts[:config])
 
       {:ok, client_opts}
     end
 
     @impl true
-    def receive_status(_sid, _opts) do
+    def receive_status(_sid, opts) do
+      job_name =
+        case opts[:job_epoch] do
+          nil -> "8CB53D79-587A-43EE-95CC-14256C65EF95"
+          epoch -> "job-#{Agent.get(epoch, & &1)}"
+        end
+
       {:ok,
        %{
          status: 200,
          body: %{
            "entry" => [
              %{
-               "name" => "8CB53D79-587A-43EE-95CC-14256C65EF95",
+               "name" => job_name,
                "published" => "2022-06-28T15:00:02.000+02:00",
                "content" => %{
                  "isDone" => true,
@@ -379,10 +385,12 @@ defmodule OffBroadway.Splunk.ProducerTest do
       stop_broadway(pid)
     end
 
-    # FIXME This test fails, and I cannot understand why.
     test "keep trying to receive new messages when the queue is empty" do
+      # Each batch of messages in Splunk comes from a separate job run (different SID).
+      # Simulate this by using a job_epoch agent: epoch 0 = first job, epoch 1 = second job.
+      {:ok, job_epoch} = Agent.start_link(fn -> 0 end)
       {:ok, message_server} = MessageServer.start_link()
-      {:ok, pid} = start_broadway(message_server)
+      {:ok, pid} = start_broadway(message_server, new_unique_name(), job_epoch: job_epoch)
 
       MessageServer.push_messages(message_server, [13])
       assert_receive {:messages_received, 1}
@@ -391,7 +399,10 @@ defmodule OffBroadway.Splunk.ProducerTest do
       assert_receive {:messages_received, 0}
       refute_receive {:message_handled, _, _}
 
+      # Push messages before advancing the epoch so they are ready when the new job is picked up.
       MessageServer.push_messages(message_server, [14, 15])
+      Agent.update(job_epoch, fn _ -> 1 end)
+
       assert_receive {:messages_received, 2}
       assert_receive {:message_handled, 14, _}
       assert_receive {:message_handled, 15, _}

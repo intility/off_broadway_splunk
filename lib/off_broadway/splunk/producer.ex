@@ -261,6 +261,11 @@ defmodule OffBroadway.Splunk.Producer do
            | receive_timer: schedule_next_job(0),
              refetch_timer: schedule_receive_jobs(state.refetch_interval)
          }}
+
+      _state ->
+        # A job is currently being processed; new jobs may have been added to the queue.
+        # Continue the refetch loop and let the current job finish normally.
+        {:noreply, [], %{new_state | refetch_timer: schedule_receive_jobs(state.refetch_interval)}}
     end
   end
 

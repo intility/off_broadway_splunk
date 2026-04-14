@@ -114,8 +114,10 @@ defmodule OffBroadway.Splunk.Options do
         """,
         default: []
       ],
+      # For test
+      message_server: [type: :pid, doc: false],
       test_pid: [type: :pid, doc: false],
-      message_server: [type: :pid, doc: false]
+      job_epoch: [type: :pid, doc: false]
     ]
   end
 
