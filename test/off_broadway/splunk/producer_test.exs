@@ -65,15 +65,18 @@ defmodule OffBroadway.Splunk.ProducerTest do
       messages = MessageServer.take_messages(opts[:message_server], demand)
       send(opts[:test_pid], {:messages_received, length(messages)})
 
-      for msg <- messages do
-        ack_data = %{
-          receipt: %{id: "splunk.example.com;my-index;329:7062435"},
-          test_pid: opts[:test_pid]
-        }
+      result =
+        for msg <- messages do
+          ack_data = %{
+            receipt: %{id: "splunk.example.com;my-index;329:7062435"},
+            test_pid: opts[:test_pid]
+          }
 
-        metadata = %{custom: "custom-data"}
-        %Message{data: msg, metadata: metadata, acknowledger: {__MODULE__, :ack_ref, ack_data}}
-      end
+          metadata = %{custom: "custom-data"}
+          %Message{data: msg, metadata: metadata, acknowledger: {__MODULE__, :ack_ref, ack_data}}
+        end
+
+      {:ok, result}
     end
 
     @impl true
@@ -116,6 +119,123 @@ defmodule OffBroadway.Splunk.ProducerTest do
     def handle_batch(_, messages, _, _) do
       messages
     end
+  end
+
+  defmodule Http404SplunkClient do
+    @behaviour OffBroadway.Splunk.Client
+
+    @impl true
+    def init(opts) do
+      {:ok, Keyword.take(opts, [:test_pid]) |> Keyword.merge(opts[:config])}
+    end
+
+    @impl true
+    def receive_status(_name, _opts) do
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "entry" => [
+             %{
+               "name" => "test-job",
+               "published" => "2022-06-28T15:00:02.000+02:00",
+               "content" => %{"isDone" => true, "isScheduled" => true, "isZombie" => false}
+             }
+           ]
+         }
+       }}
+    end
+
+    @impl true
+    def receive_messages(_sid, _demand, _opts), do: {:error, {:http_error, 404}}
+  end
+
+  defmodule Http401MessageSplunkClient do
+    @behaviour OffBroadway.Splunk.Client
+
+    @impl true
+    def init(opts) do
+      {:ok, Keyword.take(opts, [:test_pid]) |> Keyword.merge(opts[:config])}
+    end
+
+    @impl true
+    def receive_status(_name, _opts) do
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "entry" => [
+             %{
+               "name" => "test-job",
+               "published" => "2022-06-28T15:00:02.000+02:00",
+               "content" => %{"isDone" => true, "isScheduled" => true, "isZombie" => false}
+             }
+           ]
+         }
+       }}
+    end
+
+    @impl true
+    def receive_messages(_sid, _demand, _opts), do: {:error, {:http_error, 401}}
+  end
+
+  defmodule Http403StatusSplunkClient do
+    @behaviour OffBroadway.Splunk.Client
+
+    @impl true
+    def init(opts) do
+      {:ok, Keyword.take(opts, [:test_pid]) |> Keyword.merge(opts[:config])}
+    end
+
+    @impl true
+    def receive_status(_name, _opts), do: {:ok, %{status: 403, body: %{}}}
+
+    @impl true
+    def receive_messages(_sid, _demand, _opts), do: {:ok, []}
+  end
+
+  defmodule Http401StatusSplunkClient do
+    @behaviour OffBroadway.Splunk.Client
+
+    @impl true
+    def init(opts) do
+      {:ok, Keyword.take(opts, [:test_pid]) |> Keyword.merge(opts[:config])}
+    end
+
+    @impl true
+    def receive_status(_name, _opts), do: {:ok, %{status: 401, body: %{}}}
+
+    @impl true
+    def receive_messages(_sid, _demand, _opts), do: {:ok, []}
+  end
+
+  defmodule Http403MessageSplunkClient do
+    @behaviour OffBroadway.Splunk.Client
+
+    @impl true
+    def init(opts) do
+      {:ok, Keyword.take(opts, [:test_pid]) |> Keyword.merge(opts[:config])}
+    end
+
+    @impl true
+    def receive_status(_name, _opts) do
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "entry" => [
+             %{
+               "name" => "test-job",
+               "published" => "2022-06-28T15:00:02.000+02:00",
+               "content" => %{"isDone" => true, "isScheduled" => true, "isZombie" => false}
+             }
+           ]
+         }
+       }}
+    end
+
+    @impl true
+    def receive_messages(_sid, _demand, _opts), do: {:error, {:http_error, 403}}
   end
 
   defp prepare_for_start_module_opts(module_opts) do
@@ -232,30 +352,6 @@ defmodule OffBroadway.Splunk.ProducerTest do
                )
 
       assert result_module_opts[:config][:max_events] == 10
-    end
-
-    test "when :only_latest is true sets jobs: :latest" do
-      assert {[],
-              [
-                producer: [
-                  module: {Producer, result_module_opts},
-                  concurrency: 1
-                ]
-              ]} = prepare_for_start_module_opts(name: "My fine report", only_latest: true)
-
-      assert result_module_opts[:jobs] == :latest
-    end
-
-    test "when :only_new is true sets jobs: :new" do
-      assert {[],
-              [
-                producer: [
-                  module: {Producer, result_module_opts},
-                  concurrency: 1
-                ]
-              ]} = prepare_for_start_module_opts(name: "My fine report", only_new: true)
-
-      assert result_module_opts[:jobs] == :new
     end
 
     test "when :jobs is an invalid value" do
@@ -497,6 +593,127 @@ defmodule OffBroadway.Splunk.ProducerTest do
                       %{sid: _, received: _, demand: 10}}
 
       stop_broadway(pid)
+    end
+
+    test "emits [:off_broadway_splunk, :receive_messages, :error] on HTTP error response" do
+      self = self()
+
+      :ok =
+        :telemetry.attach(
+          "receive_messages_error_test",
+          [:off_broadway_splunk, :receive_messages, :error],
+          fn name, measurements, metadata, _ ->
+            send(self, {:telemetry_event, name, measurements, metadata})
+          end,
+          nil
+        )
+
+      {:ok, message_server} = MessageServer.start_link()
+      {:ok, pid} = start_broadway(message_server, new_unique_name(), splunk_client: Http404SplunkClient)
+
+      assert_receive {:telemetry_event, [:off_broadway_splunk, :receive_messages, :error], %{time: _},
+                      %{name: _, sid: _, demand: _, status: 404}},
+                     2000
+
+      :telemetry.detach("receive_messages_error_test")
+      stop_broadway(pid)
+    end
+
+    test "stops the producer on 401 from receive_messages" do
+      Process.flag(:trap_exit, true)
+      on_exit(fn -> Process.flag(:trap_exit, false) end)
+
+      broadway_name = new_unique_name()
+      {:ok, message_server} = MessageServer.start_link()
+      {:ok, pid} = start_broadway(message_server, broadway_name, splunk_client: Http401MessageSplunkClient)
+
+      ref = Process.monitor(pid)
+      assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 5000
+    end
+
+    test "stops the producer on 403 from receive_messages" do
+      Process.flag(:trap_exit, true)
+      on_exit(fn -> Process.flag(:trap_exit, false) end)
+
+      broadway_name = new_unique_name()
+      {:ok, message_server} = MessageServer.start_link()
+
+      {:ok, pid} =
+        start_broadway(message_server, broadway_name, splunk_client: Http403MessageSplunkClient)
+
+      ref = Process.monitor(pid)
+      assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 5000
+    end
+
+    test "emits [:off_broadway_splunk, :receive_jobs, :error] on non-200 job list response" do
+      Process.flag(:trap_exit, true)
+      on_exit(fn -> Process.flag(:trap_exit, false) end)
+
+      self = self()
+
+      :ok =
+        :telemetry.attach(
+          "receive_jobs_error_test",
+          [:off_broadway_splunk, :receive_jobs, :error],
+          fn name, measurements, metadata, _ ->
+            send(self, {:telemetry_event, name, measurements, metadata})
+          end,
+          nil
+        )
+
+      {:ok, message_server} = MessageServer.start_link()
+
+      {:ok, pid} =
+        start_broadway(message_server, new_unique_name(), splunk_client: Http403StatusSplunkClient)
+
+      assert_receive {:telemetry_event, [:off_broadway_splunk, :receive_jobs, :error], %{time: _},
+                      %{name: _, status: 403}},
+                     2000
+
+      :telemetry.detach("receive_jobs_error_test")
+      stop_broadway(pid)
+    end
+
+    test "stops the producer on 401 from receive_jobs" do
+      Process.flag(:trap_exit, true)
+      on_exit(fn -> Process.flag(:trap_exit, false) end)
+
+      broadway_name = new_unique_name()
+      {:ok, message_server} = MessageServer.start_link()
+
+      {:ok, pid} =
+        start_broadway(message_server, broadway_name, splunk_client: Http401StatusSplunkClient)
+
+      ref = Process.monitor(pid)
+      assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 5000
+    end
+
+    test "emits [:off_broadway_splunk, :producer, :stop] with :unauthorized reason on auth failure" do
+      Process.flag(:trap_exit, true)
+      on_exit(fn -> Process.flag(:trap_exit, false) end)
+
+      self = self()
+
+      :ok =
+        :telemetry.attach(
+          "producer_stop_unauthorized_test",
+          [:off_broadway_splunk, :producer, :stop],
+          fn name, measurements, metadata, _ ->
+            send(self, {:telemetry_event, name, measurements, metadata})
+          end,
+          nil
+        )
+
+      on_exit(fn -> :telemetry.detach("producer_stop_unauthorized_test") end)
+
+      {:ok, message_server} = MessageServer.start_link()
+
+      {:ok, _pid} =
+        start_broadway(message_server, new_unique_name(), splunk_client: Http401MessageSplunkClient)
+
+      assert_receive {:telemetry_event, [:off_broadway_splunk, :producer, :stop], %{time: _},
+                      %{name: "My fine report", reason: :unauthorized}},
+                     5000
     end
   end
 

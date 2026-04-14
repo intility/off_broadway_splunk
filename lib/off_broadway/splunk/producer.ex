@@ -104,7 +104,7 @@ defmodule OffBroadway.Splunk.Producer do
     * `[:off_broadway_splunk, :receive_messages, :ack]` - Dispatched when acking a message.
 
       * measurement: `%{time: System.system_time, count: 1}`
-      * meatadata:
+      * metadata:
 
         ```
         %{
@@ -112,6 +112,29 @@ defmodule OffBroadway.Splunk.Producer do
           receipt: receipt
         }
         ```
+
+    * `[:off_broadway_splunk, :producer, :stop]` - Dispatched when the producer process
+      terminates due to an error returned from a callback (e.g. `:unauthorized` after a
+      401/403 response). Note: this event does not fire for normal supervisor-initiated
+      shutdowns, since those bypass the callback mechanism.
+
+      * measurement: `%{time: System.system_time}`
+      * metadata: `%{name: string, reason: term}`
+
+    * `[:off_broadway_splunk, :receive_jobs, :error]` - Dispatched when fetching the job list
+      fails, either due to a non-200 HTTP response or a network error.
+
+      * measurement: `%{time: System.system_time}`
+      * metadata (HTTP error): `%{name: string, status: integer}`
+      * metadata (network error): `%{name: string, reason: term}`
+
+    * `[:off_broadway_splunk, :receive_messages, :error]` - Dispatched when fetching events
+      for a job fails, either due to a non-200 HTTP response or a network error. A 401 or 403
+      status will also cause the producer to stop.
+
+      * measurement: `%{time: System.system_time}`
+      * metadata (HTTP error): `%{name: string, sid: string, demand: integer, status: integer}`
+      * metadata (network error): `%{name: string, sid: string, demand: integer, reason: term}`
   """
 
   use GenStage
@@ -156,7 +179,6 @@ defmodule OffBroadway.Splunk.Producer do
   @impl true
   def prepare_for_start(_module, broadway_opts) do
     {producer_module, client_opts} = broadway_opts[:producer][:module]
-    client_opts = preprocess_options(client_opts)
 
     case NimbleOptions.validate(client_opts, Options.definition()) do
       {:error, error} ->
@@ -176,15 +198,6 @@ defmodule OffBroadway.Splunk.Producer do
 
         {[], with_default_opts}
     end
-  end
-
-  # NOTE Remove next major release when :only_new and :only_latest are removed.
-  defp preprocess_options(opts) do
-    Enum.reduce(opts, [], fn
-      {:only_new, true}, acc -> Keyword.put_new(acc, :jobs, :new)
-      {:only_latest, true}, acc -> Keyword.put_new(acc, :jobs, :latest)
-      {key, value}, acc -> Keyword.put(acc, key, value)
-    end)
   end
 
   defp format_error(%ValidationError{keys_path: [], message: message}) do
@@ -236,6 +249,15 @@ defmodule OffBroadway.Splunk.Producer do
 
   def handle_info(_, state), do: {:noreply, [], state}
 
+  @impl true
+  def terminate(reason, state) do
+    :telemetry.execute(
+      [:off_broadway_splunk, :producer, :stop],
+      %{time: System.system_time()},
+      %{name: state.name, reason: reason}
+    )
+  end
+
   @impl Producer
   def prepare_for_draining(%{receive_timer: receive_timer, refetch_timer: refetch_timer} = state) do
     receive_timer && Process.cancel_timer(receive_timer)
@@ -243,28 +265,33 @@ defmodule OffBroadway.Splunk.Producer do
     {:noreply, [], %{state | drain: true, receive_timer: nil, refetch_timer: nil}}
   end
 
-  @spec handle_receive_jobs(state :: map()) :: {:noreply, [], new_state :: map()}
+  @spec handle_receive_jobs(state :: map()) :: {:noreply, [], new_state :: map()} | {:stop, any(), map()}
   defp handle_receive_jobs(%{refetch_timer: nil} = state) do
-    new_state =
-      receive_jobs_from_splunk(state)
-      |> update_queue_from_response(state)
+    case receive_jobs_from_splunk(state) do
+      {:ok, _} = response ->
+        new_state = update_queue_from_response(response, state)
 
-    case new_state do
-      %{current_job: nil, queue: {[], []}} ->
-        {:noreply, [], %{new_state | refetch_timer: schedule_receive_jobs(state.refetch_interval)}}
+        case new_state do
+          %{current_job: nil, queue: {[], []}} ->
+            {:noreply, [], %{new_state | refetch_timer: schedule_receive_jobs(state.refetch_interval)}}
 
-      %{current_job: nil, queue: _queue} ->
-        {:noreply, [],
-         %{
-           new_state
-           | receive_timer: schedule_next_job(0),
-             refetch_timer: schedule_receive_jobs(state.refetch_interval)
-         }}
+          %{current_job: nil, queue: _queue} ->
+            {:noreply, [],
+             %{
+               new_state
+               | receive_timer: schedule_next_job(0),
+                 refetch_timer: schedule_receive_jobs(state.refetch_interval)
+             }}
 
-      _state ->
-        # A job is currently being processed; new jobs may have been added to the queue.
-        # Continue the refetch loop and let the current job finish normally.
-        {:noreply, [], %{new_state | refetch_timer: schedule_receive_jobs(state.refetch_interval)}}
+          _state ->
+            {:noreply, [], %{new_state | refetch_timer: schedule_receive_jobs(state.refetch_interval)}}
+        end
+
+      {:error, {:http_error, status}} when status in [401, 403] ->
+        {:stop, :unauthorized, state}
+
+      {:error, _reason} ->
+        {:noreply, [], %{state | refetch_timer: schedule_receive_jobs(state.refetch_interval)}}
     end
   end
 
@@ -323,10 +350,14 @@ defmodule OffBroadway.Splunk.Producer do
            queue: {[], []}
          } = state
        ) do
-    with {:ok, response} <- receive_jobs_from_splunk(state),
-         new_state <- update_queue_from_response({:ok, response}, state) do
-      {:noreply, [], %{new_state | receive_timer: schedule_receive_messages(0)}}
-    else
+    case receive_jobs_from_splunk(state) do
+      {:ok, _} = response ->
+        new_state = update_queue_from_response(response, state)
+        {:noreply, [], %{new_state | receive_timer: schedule_receive_messages(0)}}
+
+      {:error, {:http_error, status}} when status in [401, 403] ->
+        {:stop, :unauthorized, state}
+
       {:error, _reason} ->
         {:noreply, [], %{state | receive_timer: schedule_receive_messages(state.receive_interval)}}
     end
@@ -341,19 +372,27 @@ defmodule OffBroadway.Splunk.Producer do
          } = state
        )
        when demand > 0 do
-    {messages, new_state} = receive_messages_from_splunk(state, demand)
-    new_demand = demand - length(messages)
-    max_events = client_opts[:max_events]
-    total_events = :counters.get(state.processed_events, 2)
+    case receive_messages_from_splunk(state, demand) do
+      {:ok, messages, new_state} ->
+        new_demand = demand - length(messages)
+        max_events = client_opts[:max_events]
+        total_events = :counters.get(state.processed_events, 2)
 
-    receive_timer =
-      case {total_events, messages, new_state} do
-        {^max_events, _messages, _state} -> schedule_shutdown()
-        {_total_events, [], %{receive_interval: interval}} -> schedule_next_job(interval)
-        {_total_events, _messages, _state} -> schedule_receive_messages(0)
-      end
+        receive_timer =
+          case {total_events, messages, new_state} do
+            {^max_events, _messages, _state} -> schedule_shutdown()
+            {_total_events, [], %{receive_interval: interval}} -> schedule_next_job(interval)
+            {_total_events, _messages, _state} -> schedule_receive_messages(0)
+          end
 
-    {:noreply, messages, %{new_state | demand: new_demand, receive_timer: receive_timer}}
+        {:noreply, messages, %{new_state | demand: new_demand, receive_timer: receive_timer}}
+
+      {:error, _reason, new_state} ->
+        {:noreply, [], %{new_state | receive_timer: schedule_receive_messages(new_state.receive_interval)}}
+
+      {:stop, reason, new_state} ->
+        {:stop, reason, new_state}
+    end
   end
 
   defp handle_receive_messages(%{current_job: nil, receive_timer: nil} = state) do
@@ -374,6 +413,8 @@ defmodule OffBroadway.Splunk.Producer do
   defp receive_jobs_from_splunk(%{name: name, splunk_client: {client, client_opts}}) do
     metadata = %{name: name, count: 0}
 
+    # The :error event is emitted explicitly inside the span for error conditions.
+    # The span still emits :start/:stop on all paths.
     :telemetry.span(
       [:off_broadway_splunk, :receive_jobs],
       metadata,
@@ -382,10 +423,22 @@ defmodule OffBroadway.Splunk.Producer do
           {:ok, %{status: 200, body: %{"entry" => jobs}}} = response ->
             {response, %{metadata | count: length(jobs)}}
 
-          {:ok, %{status: _status}} = response ->
-            {response, metadata}
+          {:ok, %{status: status_code}} ->
+            :telemetry.execute(
+              [:off_broadway_splunk, :receive_jobs, :error],
+              %{time: System.system_time()},
+              %{name: name, status: status_code}
+            )
+
+            {{:error, {:http_error, status_code}}, metadata}
 
           {:error, reason} ->
+            :telemetry.execute(
+              [:off_broadway_splunk, :receive_jobs, :error],
+              %{time: System.system_time()},
+              %{name: name, reason: reason}
+            )
+
             {{:error, reason}, metadata}
         end
       end
@@ -393,7 +446,9 @@ defmodule OffBroadway.Splunk.Producer do
   end
 
   @spec receive_messages_from_splunk(state :: map(), demand :: non_neg_integer()) ::
-          {messages :: list(), state :: map()}
+          {:ok, messages :: list(), state :: map()}
+          | {:error, reason :: any(), state :: map()}
+          | {:stop, reason :: any(), state :: map()}
   defp receive_messages_from_splunk(
          %{name: name, current_job: job, splunk_client: {client, client_opts}} = state,
          demand
@@ -411,31 +466,63 @@ defmodule OffBroadway.Splunk.Producer do
 
     case count do
       0 ->
-        {[], state}
+        {:ok, [], state}
 
       _ ->
-        messages =
+        # The :error event is emitted explicitly inside the span for error conditions.
+        # The span itself still emits :start/:stop events (not :exception, since we
+        # handle errors as normal return values). Consumers can distinguish errors by
+        # listening to the :error event; the :stop event fires on all paths.
+        result =
           :telemetry.span(
             [:off_broadway_splunk, :receive_messages],
             metadata,
             fn ->
-              with messages <- client.receive_messages(job.name, demand, client_opts),
-                   count <- length(messages),
-                   :ok <- :counters.add(state.processed_events, 1, count),
-                   :ok <- :counters.add(state.processed_events, 2, count),
-                   :ok <- :counters.add(state.processed_requests, 1, 1),
-                   :ok <- :counters.add(state.processed_requests, 2, 1) do
-                {messages, Map.put(metadata, :received, count)}
+              case client.receive_messages(job.name, demand, client_opts) do
+                {:ok, messages} ->
+                  msg_count = length(messages)
+                  :ok = :counters.add(state.processed_events, 1, msg_count)
+                  :ok = :counters.add(state.processed_events, 2, msg_count)
+                  :ok = :counters.add(state.processed_requests, 1, 1)
+                  :ok = :counters.add(state.processed_requests, 2, 1)
+                  {messages, Map.put(metadata, :received, msg_count)}
+
+                {:error, {:http_error, status}} ->
+                  :telemetry.execute(
+                    [:off_broadway_splunk, :receive_messages, :error],
+                    %{time: System.system_time()},
+                    Map.put(metadata, :status, status)
+                  )
+
+                  {{:error, {:http_error, status}}, metadata}
+
+                {:error, reason} ->
+                  :telemetry.execute(
+                    [:off_broadway_splunk, :receive_messages, :error],
+                    %{time: System.system_time()},
+                    Map.put(metadata, :reason, reason)
+                  )
+
+                  {{:error, reason}, metadata}
               end
             end
           )
 
-        {messages, state}
+        case result do
+          {:error, {:http_error, status}} when status in [401, 403] ->
+            {:stop, :unauthorized, state}
+
+          {:error, reason} ->
+            {:error, reason, state}
+
+          messages ->
+            {:ok, messages, state}
+        end
     end
   end
 
   @spec update_queue_from_response(
-          response :: {:ok, Tesla.Env.t()} | {:error, any()},
+          response :: {:ok, Tesla.Env.t()},
           state :: map()
         ) ::
           new_state :: map()
@@ -474,9 +561,6 @@ defmodule OffBroadway.Splunk.Producer do
 
     %{state | queue: new_queue, completed_jobs: completed_jobs, first_fetch: false}
   end
-
-  defp update_queue_from_response({:ok, _response}, state), do: state
-  defp update_queue_from_response({:error, _reason}, state), do: state
 
   @spec only_latest?(list :: list(), flag :: atom()) :: list()
   defp only_latest?(list, :latest), do: Enum.take(list, -1)

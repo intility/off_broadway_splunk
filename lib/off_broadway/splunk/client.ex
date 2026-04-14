@@ -18,7 +18,8 @@ defmodule OffBroadway.Splunk.Client do
   @callback ack_message(message :: Message.t(), ack_options :: any) :: any
   @callback receive_status(name :: binary, opts :: any) ::
               {:ok, response :: any} | {:error, reason :: any}
-  @callback receive_messages(sid :: binary, demand :: pos_integer, opts :: any) :: messages
+  @callback receive_messages(sid :: binary, demand :: pos_integer, opts :: any) ::
+              {:ok, messages} | {:error, reason :: any}
 
   @optional_callbacks ack_message: 2
 end
