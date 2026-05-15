@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.1](https://github.com/intility/off_broadway_splunk/compare/v3.0.0...v3.0.1) (2026-05-15)
+
+
+### Bug Fixes
+
+* **producer:** Prevent adding nil to completed_jobs set ([f36a24a](https://github.com/intility/off_broadway_splunk/commit/f36a24a31d2df16ad5e05af825287857154a8158))
+
 ## [3.0.0](https://github.com/intility/off_broadway_splunk/compare/v2.1.4...v3.0.0) (2026-04-14)
 
 
