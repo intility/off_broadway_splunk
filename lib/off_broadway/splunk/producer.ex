@@ -324,7 +324,7 @@ defmodule OffBroadway.Splunk.Producer do
            state
            | current_job: job,
              queue: new_queue,
-             completed_jobs: MapSet.put(completed, current),
+             completed_jobs: if(current, do: MapSet.put(completed, current), else: completed),
              receive_timer: schedule_receive_messages(0)
          }}
 
@@ -334,7 +334,7 @@ defmodule OffBroadway.Splunk.Producer do
            state
            | current_job: nil,
              queue: new_queue,
-             completed_jobs: MapSet.put(completed, current),
+             completed_jobs: if(current, do: MapSet.put(completed, current), else: completed),
              refetch_timer: schedule_receive_jobs(state.refetch_interval)
          }}
     end

@@ -482,6 +482,21 @@ defmodule OffBroadway.Splunk.ProducerTest do
       stop_broadway(pid)
     end
 
+    test "does not add nil to completed_jobs on first job transition" do
+      {:ok, message_server} = MessageServer.start_link()
+      broadway_name = new_unique_name()
+      {:ok, pid} = start_broadway(message_server, broadway_name)
+
+      MessageServer.push_messages(message_server, [1])
+      assert_receive {:message_handled, 1, _}
+
+      [producer] = Broadway.producer_names(broadway_name)
+      %{state: %{module_state: state}} = :sys.get_state(producer)
+      refute MapSet.member?(state.completed_jobs, nil)
+
+      stop_broadway(pid)
+    end
+
     test "keep trying to receive new messages when the queue is empty" do
       # Each batch of messages in Splunk comes from a separate job run (different SID).
       # Simulate this by using a job_epoch agent: epoch 0 = first job, epoch 1 = second job.
