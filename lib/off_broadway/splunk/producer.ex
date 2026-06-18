@@ -130,11 +130,27 @@ defmodule OffBroadway.Splunk.Producer do
 
     * `[:off_broadway_splunk, :receive_messages, :error]` - Dispatched when fetching events
       for a job fails, either due to a non-200 HTTP response or a network error. A 401 or 403
-      status will also cause the producer to stop.
+      status will be retried up to `:max_auth_retries` times before stopping the producer
+      (see the `:max_auth_retries` option).
 
       * measurement: `%{time: System.system_time}`
       * metadata (HTTP error): `%{name: string, sid: string, demand: integer, status: integer}`
       * metadata (network error): `%{name: string, sid: string, demand: integer, reason: term}`
+
+    * `[:off_broadway_splunk, :auth, :error]` - Dispatched on each 401/403 auth error,
+      whether it results in a retry or a producer stop.
+
+      * measurement: `%{time: System.system_time}`
+      * metadata:
+
+        ```
+        %{
+          name: string,
+          status: integer,
+          auth_error_count: integer,
+          max_auth_retries: integer
+        }
+        ```
   """
 
   use GenStage
@@ -143,6 +159,8 @@ defmodule OffBroadway.Splunk.Producer do
   alias OffBroadway.Splunk.{Job, Options}
 
   @behaviour Producer
+
+  @max_backoff_interval 30_000
 
   @impl true
   def init(opts) do
@@ -172,7 +190,9 @@ defmodule OffBroadway.Splunk.Producer do
        queue: :queue.new(),
        splunk_client: {client, client_opts},
        broadway: opts[:broadway][:name],
-       shutdown_timeout: opts[:shutdown_timeout]
+       shutdown_timeout: opts[:shutdown_timeout],
+       auth_error_count: 0,
+       max_auth_retries: opts[:max_auth_retries]
      }}
   end
 
@@ -270,6 +290,7 @@ defmodule OffBroadway.Splunk.Producer do
     case receive_jobs_from_splunk(state) do
       {:ok, _} = response ->
         new_state = update_queue_from_response(response, state)
+        new_state = %{new_state | auth_error_count: 0}
 
         case new_state do
           %{current_job: nil, queue: {[], []}} ->
@@ -288,7 +309,9 @@ defmodule OffBroadway.Splunk.Producer do
         end
 
       {:error, {:http_error, status}} when status in [401, 403] ->
-        {:stop, :unauthorized, state}
+        handle_auth_error(state, status, :refetch_timer, fn _s, interval ->
+          schedule_receive_jobs(interval)
+        end)
 
       {:error, _reason} ->
         {:noreply, [], %{state | refetch_timer: schedule_receive_jobs(state.refetch_interval)}}
@@ -353,10 +376,13 @@ defmodule OffBroadway.Splunk.Producer do
     case receive_jobs_from_splunk(state) do
       {:ok, _} = response ->
         new_state = update_queue_from_response(response, state)
+        new_state = %{new_state | auth_error_count: 0}
         {:noreply, [], %{new_state | receive_timer: schedule_receive_messages(0)}}
 
       {:error, {:http_error, status}} when status in [401, 403] ->
-        {:stop, :unauthorized, state}
+        handle_auth_error(state, status, :receive_timer, fn _s, interval ->
+          schedule_receive_messages(interval)
+        end)
 
       {:error, _reason} ->
         {:noreply, [], %{state | receive_timer: schedule_receive_messages(state.receive_interval)}}
@@ -407,6 +433,49 @@ defmodule OffBroadway.Splunk.Producer do
 
   defp handle_receive_messages(%{receive_timer: nil} = state) do
     {:noreply, [], %{state | receive_timer: schedule_receive_messages(state.receive_interval)}}
+  end
+
+  @spec handle_auth_error(
+          state :: map(),
+          status :: integer(),
+          timer_key :: atom(),
+          reschedule_fn :: (map(), non_neg_integer() -> reference())
+        ) ::
+          {:noreply, [], map()} | {:stop, :unauthorized, map()}
+  defp handle_auth_error(state, status, timer_key, reschedule_fn) do
+    new_count = state.auth_error_count + 1
+
+    :telemetry.execute(
+      [:off_broadway_splunk, :auth, :error],
+      %{time: System.system_time()},
+      %{name: state.name, status: status, auth_error_count: new_count, max_auth_retries: state.max_auth_retries}
+    )
+
+    if new_count > state.max_auth_retries do
+      {:stop, :unauthorized, %{state | auth_error_count: new_count}}
+    else
+      base =
+        case timer_key do
+          :refetch_timer -> state.refetch_interval
+          :receive_timer -> state.receive_interval
+        end
+
+      interval = backoff_interval(base, new_count)
+
+      new_state =
+        state
+        |> Map.put(:auth_error_count, new_count)
+        |> Map.put(timer_key, reschedule_fn.(state, interval))
+
+      {:noreply, [], new_state}
+    end
+  end
+
+  @doc false
+  @spec backoff_interval(base :: non_neg_integer(), error_count :: pos_integer()) :: non_neg_integer()
+  def backoff_interval(base, error_count) do
+    uncapped = Bitwise.bsl(base, error_count - 1)
+    min(uncapped, max(base, @max_backoff_interval))
   end
 
   @spec receive_jobs_from_splunk(state :: map()) :: {:ok, Tesla.Env.t()} | {:error, any()}
@@ -508,18 +577,35 @@ defmodule OffBroadway.Splunk.Producer do
             end
           )
 
-        case result do
-          {:error, {:http_error, status}} when status in [401, 403] ->
-            {:stop, :unauthorized, state}
-
-          {:error, reason} ->
-            {:error, reason, state}
-
-          messages ->
-            {:ok, messages, state}
-        end
+        handle_receive_messages_result(result, state)
     end
   end
+
+  @spec handle_receive_messages_result(result :: any(), state :: map()) ::
+          {:ok, messages :: list(), state :: map()}
+          | {:error, reason :: any(), state :: map()}
+          | {:stop, reason :: any(), state :: map()}
+  defp handle_receive_messages_result({:error, {:http_error, status}}, state)
+       when status in [401, 403] do
+    new_count = state.auth_error_count + 1
+
+    :telemetry.execute(
+      [:off_broadway_splunk, :auth, :error],
+      %{time: System.system_time()},
+      %{name: state.name, status: status, auth_error_count: new_count, max_auth_retries: state.max_auth_retries}
+    )
+
+    if new_count > state.max_auth_retries do
+      {:stop, :unauthorized, %{state | auth_error_count: new_count}}
+    else
+      {:error, {:http_error, status}, %{state | auth_error_count: new_count}}
+    end
+  end
+
+  defp handle_receive_messages_result({:error, reason}, state), do: {:error, reason, state}
+
+  defp handle_receive_messages_result(messages, state),
+    do: {:ok, messages, %{state | auth_error_count: 0}}
 
   @spec update_queue_from_response(
           response :: {:ok, Tesla.Env.t()},

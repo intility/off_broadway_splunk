@@ -45,6 +45,16 @@ defmodule OffBroadway.Splunk.Options do
         """,
         default: :infinity
       ],
+      max_auth_retries: [
+        type: :pos_integer,
+        doc: """
+        The maximum number of consecutive 401/403 auth errors before the producer
+        stops. This allows the producer to survive transient auth failures during
+        Splunk rolling updates or token rotation windows. Set to 1 to stop
+        immediately on the first auth error (previous behavior).
+        """,
+        default: 3
+      ],
       on_success: [
         type: :atom,
         doc: """
@@ -92,7 +102,9 @@ defmodule OffBroadway.Splunk.Options do
             `max_events` messages from the Splunk API.
             """,
             type: {:custom, __MODULE__, :type_nil_or_pos_integer, [[{:name, :max_events}]]}
-          ]
+          ],
+          # For test
+          auth_error_agent: [type: :pid, doc: false]
         ],
         doc: """
         A set of config options that overrides the default config for the `splunk_client`

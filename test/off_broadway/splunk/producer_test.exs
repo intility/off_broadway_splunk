@@ -238,6 +238,61 @@ defmodule OffBroadway.Splunk.ProducerTest do
     def receive_messages(_sid, _demand, _opts), do: {:error, {:http_error, 403}}
   end
 
+  defmodule TransientAuth401StatusClient do
+    @behaviour OffBroadway.Splunk.Client
+
+    @impl true
+    def init(opts) do
+      {:ok, Keyword.take(opts, [:test_pid, :message_server]) |> Keyword.merge(opts[:config])}
+    end
+
+    @impl true
+    def receive_status(_name, opts) do
+      send(opts[:test_pid], :receive_status_called)
+
+      case Agent.get_and_update(opts[:auth_error_agent], fn count ->
+             if count > 0, do: {:error, count - 1}, else: {:ok, count}
+           end) do
+        :error ->
+          {:ok, %{status: 401, body: %{}}}
+
+        :ok ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "entry" => [
+                 %{
+                   "name" => "test-job",
+                   "published" => "2022-06-28T15:00:02.000+02:00",
+                   "content" => %{"isDone" => true, "isScheduled" => true, "isZombie" => false}
+                 }
+               ]
+             }
+           }}
+      end
+    end
+
+    @impl true
+    def receive_messages(_sid, demand, opts) do
+      messages = MessageServer.take_messages(opts[:message_server], demand)
+      send(opts[:test_pid], {:messages_received, length(messages)})
+
+      result =
+        for msg <- messages do
+          metadata = %{custom: "custom-data"}
+
+          %Broadway.Message{
+            data: msg,
+            metadata: metadata,
+            acknowledger: {Broadway.NoopAcknowledger, nil, nil}
+          }
+        end
+
+      {:ok, result}
+    end
+  end
+
   defp prepare_for_start_module_opts(module_opts) do
     {:ok, message_server} = MessageServer.start_link()
     {:ok, pid} = start_broadway(message_server)
@@ -425,6 +480,84 @@ defmodule OffBroadway.Splunk.ProducerTest do
           )
         end
       )
+    end
+
+    test "when :max_auth_retries is a negative integer" do
+      assert_raise(
+        ArgumentError,
+        ~r/invalid value for :max_auth_retries option/,
+        fn ->
+          prepare_for_start_module_opts(
+            name: "My fine report",
+            max_auth_retries: -1
+          )
+        end
+      )
+    end
+
+    test "when :max_auth_retries is zero" do
+      assert_raise(
+        ArgumentError,
+        ~r/invalid value for :max_auth_retries option/,
+        fn ->
+          prepare_for_start_module_opts(
+            name: "My fine report",
+            max_auth_retries: 0
+          )
+        end
+      )
+    end
+
+    test ":max_auth_retries defaults to 3" do
+      assert {[],
+              [
+                producer: [
+                  module: {Producer, result_module_opts},
+                  concurrency: 1
+                ]
+              ]} = prepare_for_start_module_opts(name: "My fine report")
+
+      assert result_module_opts[:max_auth_retries] == 3
+    end
+
+    test ":max_auth_retries accepts a positive integer" do
+      assert {[],
+              [
+                producer: [
+                  module: {Producer, result_module_opts},
+                  concurrency: 1
+                ]
+              ]} =
+               prepare_for_start_module_opts(
+                 name: "My fine report",
+                 max_auth_retries: 10
+               )
+
+      assert result_module_opts[:max_auth_retries] == 10
+    end
+  end
+
+  describe "backoff_interval/2" do
+    test "doubles the base interval for each consecutive error" do
+      assert Producer.backoff_interval(5_000, 1) == 5_000
+      assert Producer.backoff_interval(5_000, 2) == 10_000
+      assert Producer.backoff_interval(5_000, 3) == 20_000
+    end
+
+    test "caps at @max_backoff_interval (30s) when base is smaller" do
+      assert Producer.backoff_interval(5_000, 4) == 30_000
+      assert Producer.backoff_interval(5_000, 10) == 30_000
+    end
+
+    test "caps at base interval when base exceeds @max_backoff_interval" do
+      assert Producer.backoff_interval(60_000, 1) == 60_000
+      assert Producer.backoff_interval(60_000, 2) == 60_000
+      assert Producer.backoff_interval(60_000, 3) == 60_000
+    end
+
+    test "returns 0 when base is 0" do
+      assert Producer.backoff_interval(0, 1) == 0
+      assert Producer.backoff_interval(0, 3) == 0
     end
   end
 
@@ -729,6 +862,93 @@ defmodule OffBroadway.Splunk.ProducerTest do
       assert_receive {:telemetry_event, [:off_broadway_splunk, :producer, :stop], %{time: _},
                       %{name: "My fine report", reason: :unauthorized}},
                      5000
+    end
+
+    test "retries on transient 401 from receive_jobs and recovers" do
+      {:ok, auth_error_agent} = Agent.start_link(fn -> 2 end)
+      {:ok, message_server} = MessageServer.start_link()
+
+      {:ok, pid} =
+        start_broadway(message_server, new_unique_name(),
+          splunk_client: TransientAuth401StatusClient,
+          max_auth_retries: 3,
+          config: [auth_error_agent: auth_error_agent]
+        )
+
+      MessageServer.push_messages(message_server, [1, 2])
+
+      assert_receive {:messages_received, _}, 5000
+      assert_receive {:message_handled, _, _}, 5000
+
+      stop_broadway(pid)
+    end
+
+    test "stops producer after exceeding max_auth_retries from receive_jobs" do
+      Process.flag(:trap_exit, true)
+      on_exit(fn -> Process.flag(:trap_exit, false) end)
+
+      {:ok, auth_error_agent} = Agent.start_link(fn -> 100 end)
+      {:ok, message_server} = MessageServer.start_link()
+
+      broadway_name = new_unique_name()
+
+      {:ok, pid} =
+        start_broadway(message_server, broadway_name,
+          splunk_client: TransientAuth401StatusClient,
+          max_auth_retries: 3,
+          config: [auth_error_agent: auth_error_agent]
+        )
+
+      ref = Process.monitor(pid)
+      assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 5000
+    end
+
+    test "emits [:off_broadway_splunk, :auth, :error] telemetry on each retry" do
+      self = self()
+
+      :ok =
+        :telemetry.attach(
+          "auth_error_retry_test",
+          [:off_broadway_splunk, :auth, :error],
+          fn name, measurements, metadata, _ ->
+            send(self, {:telemetry_event, name, measurements, metadata})
+          end,
+          nil
+        )
+
+      on_exit(fn -> :telemetry.detach("auth_error_retry_test") end)
+
+      Process.flag(:trap_exit, true)
+      on_exit(fn -> Process.flag(:trap_exit, false) end)
+
+      {:ok, message_server} = MessageServer.start_link()
+
+      {:ok, _pid} =
+        start_broadway(message_server, new_unique_name(),
+          splunk_client: Http401StatusSplunkClient,
+          max_auth_retries: 3
+        )
+
+      assert_receive {:telemetry_event, [:off_broadway_splunk, :auth, :error], %{time: _},
+                      %{name: "My fine report", status: 401, auth_error_count: 1, max_auth_retries: 3}},
+                     5000
+    end
+
+    test "max_auth_retries: 1 stops immediately on first auth error (legacy behavior)" do
+      Process.flag(:trap_exit, true)
+      on_exit(fn -> Process.flag(:trap_exit, false) end)
+
+      broadway_name = new_unique_name()
+      {:ok, message_server} = MessageServer.start_link()
+
+      {:ok, pid} =
+        start_broadway(message_server, broadway_name,
+          splunk_client: Http401StatusSplunkClient,
+          max_auth_retries: 1
+        )
+
+      ref = Process.monitor(pid)
+      assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 5000
     end
   end
 
