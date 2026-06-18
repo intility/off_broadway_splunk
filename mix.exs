@@ -58,7 +58,7 @@ defmodule OffBroadway.Splunk.MixProject do
       {:excoveralls, "~> 0.18.0", only: :test},
       {:ex_doc, "~> 0.30", only: [:dev, :test], runtime: false},
       {:exconstructor, "~> 1.2"},
-      {:hackney, "~> 1.18", optional: true},
+      {:hackney, "~> 4.4", optional: true},
       {:jason, ">= 1.0.0"},
       {:nimble_options, "~> 0.4 or ~> 0.5 or ~> 1.0"},
       {:telemetry, "~> 1.1 or ~> 1.2"},
