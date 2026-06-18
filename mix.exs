@@ -54,7 +54,7 @@ defmodule OffBroadway.Splunk.MixProject do
       {:broadway, "~> 1.0"},
       {:credo, "~> 1.7", only: [:dev, :test]},
       {:dialyxir, ">= 0.0.0", only: [:dev, :test], runtime: false},
-      {:decimal, "~> 2.0"},
+      {:decimal, "~> 3.1"},
       {:excoveralls, "~> 0.18.0", only: :test},
       {:ex_doc, "~> 0.30", only: [:dev, :test], runtime: false},
       {:exconstructor, "~> 1.2"},
