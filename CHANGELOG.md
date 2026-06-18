@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.1.0](https://github.com/intility/off_broadway_splunk/compare/v3.0.1...v3.1.0) (2026-06-18)
+
+
+### Features
+
+* retry transient 401/403 auth errors with exponential backoff ([#20](https://github.com/intility/off_broadway_splunk/issues/20)) ([49b4dbc](https://github.com/intility/off_broadway_splunk/commit/49b4dbca2b9fd35ff28d8226c25c6cedb4a30b4f)), closes [#19](https://github.com/intility/off_broadway_splunk/issues/19)
+
 ## [3.0.1](https://github.com/intility/off_broadway_splunk/compare/v3.0.0...v3.0.1) (2026-05-15)
 
 
