@@ -20,7 +20,7 @@ jobs:
       actions: read
       contents: read
       pull-requests: write
-    uses: intility/reusable-elixir/.github/workflows/elixir-test.yaml@8538d07c58d0c44e844e68a773ec729f21ee4ed7 # v2.2.1
+    uses: intility/reusable-elixir/.github/workflows/elixir-test.yaml@e57a7d7c69468613e5f521103f596acab3cc5b33 # v3.1.0
     with:
       otp-version: "28.3"
       elixir-version: "1.19.4"
