@@ -1,7 +1,7 @@
 defmodule OffBroadway.Splunk.MixProject do
   use Mix.Project
 
-  @version "3.1.0"
+  @version "3.2.0"
   @description "Splunk producer for Broadway data processing pipelines"
   @source_url "https://github.com/Intility/off_broadway_splunk"
 

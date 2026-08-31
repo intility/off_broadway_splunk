@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.2.0](https://github.com/intility/off_broadway_splunk/compare/v3.1.0...v3.2.0) (2026-08-31)
+
+
+### Features
+
+* add opt-in namespaced search with wildcards for cross-app/owner alerts ([#35](https://github.com/intility/off_broadway_splunk/issues/35)) ([956b875](https://github.com/intility/off_broadway_splunk/commit/956b8752ff617ae27ca442d424ff813dc3483212))
+
 ## [3.1.0](https://github.com/intility/off_broadway_splunk/compare/v3.0.1...v3.1.0) (2026-06-18)
 
 
