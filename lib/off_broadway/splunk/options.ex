@@ -103,6 +103,17 @@ defmodule OffBroadway.Splunk.Options do
             """,
             type: {:custom, __MODULE__, :type_nil_or_pos_integer, [[{:name, :max_events}]]}
           ],
+          use_wildcard_namespace: [
+            doc: """
+            If `true`, job results are requested against the `/servicesNS/-/-/` (wildcard
+            owner/app) namespace instead of the default `/services/` namespace. The default
+            namespace resolves relative to the API token's own user and default app, which
+            can cause `404 Unknown sid` errors when a saved search or job lives in a
+            different app or is owned by a different user.
+            """,
+            type: :boolean,
+            default: false
+          ],
           # For test
           auth_error_agent: [type: :pid, doc: false]
         ],

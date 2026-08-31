@@ -57,6 +57,21 @@ defmodule OffBroadway.Splunk.SplunkClientTest do
 
       %{method: :get, url: "https://splunk.example.com/services/search/v2/jobs/#{@sid3}/results"} ->
         {:error, :timeout}
+
+      %{method: :get, url: "https://splunk.example.com/servicesNS/-/-/search/v2/jobs/#{@sid1}/results"} ->
+        %Tesla.Env{status: 200, body: %{"results" => [@message1, @message2]}}
+
+      %{method: :get, url: "https://splunk.example.com/servicesNS/-/-/saved/searches/My fine report"} ->
+        %Tesla.Env{
+          status: 200,
+          body: %{"entry" => [%{"acl" => %{"app" => "isoc", "owner" => "aa738"}}]}
+        }
+
+      %{method: :get, url: "https://splunk.example.com/servicesNS/nobody/isoc/saved/searches/My fine report/history"} ->
+        %Tesla.Env{status: 200, body: %{"entry" => []}}
+
+      %{method: :get, url: "https://splunk.example.com/servicesNS/-/-/saved/searches/Unknown report"} ->
+        %Tesla.Env{status: 404, body: %{"messages" => [%{"type" => "ERROR", "text" => "Not found."}]}}
     end)
   end
 
@@ -119,6 +134,61 @@ defmodule OffBroadway.Splunk.SplunkClientTest do
       assert capture_log(fn ->
                assert {:error, :timeout} = SplunkClient.receive_messages(@sid3, 10, opts)
              end) =~ "Unable to fetch events from Splunk SID"
+    end
+
+    test "when use_wildcard_namespace is true, requests events via /servicesNS/-/-", %{
+      base_opts: base_opts
+    } do
+      base_opts = put_in(base_opts, [:config, :use_wildcard_namespace], true)
+      {:ok, opts} = SplunkClient.init(base_opts)
+
+      assert {:ok, [_message1, _message2]} = SplunkClient.receive_messages(@sid1, 10, opts)
+    end
+  end
+
+  describe "receive_status/2" do
+    setup do
+      {:ok,
+       %{
+         base_opts: [
+           name: "My fine report",
+           config: [
+             base_url: "https://splunk.example.com",
+             api_token: "secret-api-token",
+             api_version: "v2"
+           ]
+         ]
+       }}
+    end
+
+    test "requests the default /services namespace by default", %{base_opts: base_opts} do
+      {:ok, opts} = SplunkClient.init(base_opts)
+
+      assert_raise Tesla.Mock.Error, fn -> SplunkClient.receive_status("My fine report", opts) end
+    end
+
+    test "when use_wildcard_namespace is true, resolves the app via a wildcard lookup then fetches history from a concrete namespace",
+         %{base_opts: base_opts} do
+      base_opts = put_in(base_opts, [:config, :use_wildcard_namespace], true)
+      {:ok, opts} = SplunkClient.init(base_opts)
+
+      assert {:ok, %{status: 200, body: %{"entry" => []}}} =
+               SplunkClient.receive_status("My fine report", opts)
+    end
+
+    test "when use_wildcard_namespace is true and app resolution fails, returns the error", %{
+      base_opts: base_opts
+    } do
+      base_opts =
+        base_opts
+        |> put_in([:config, :use_wildcard_namespace], true)
+        |> Keyword.put(:name, "Unknown report")
+
+      {:ok, opts} = SplunkClient.init(base_opts)
+
+      assert capture_log(fn ->
+               assert {:error, {:http_error, 404}} = SplunkClient.receive_status("Unknown report", opts)
+             end) =~ "Unable to fetch status for \"Unknown report\""
     end
   end
 
