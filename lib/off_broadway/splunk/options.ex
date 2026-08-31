@@ -110,12 +110,6 @@ defmodule OffBroadway.Splunk.Options do
             namespace resolves relative to the API token's own user and default app, which
             can cause `404 Unknown sid` errors when a saved search or job lives in a
             different app or is owned by a different user.
-
-            Splunk's saved-search history endpoint rejects wildcarded owner/app outright, so
-            when this is enabled the search's app is instead resolved via a wildcard-tolerant
-            lookup before requesting its history from a concrete namespace.
-
-            Defaults to `false` to preserve existing behavior.
             """,
             type: :boolean,
             default: false
