@@ -52,7 +52,7 @@ defmodule OffBroadway.Splunk.SplunkClient do
   @impl true
   def receive_status(name, opts) do
     case client(opts)
-         |> Tesla.get("/services/saved/searches/#{name}/history", query: [output_mode: "json"]) do
+         |> Tesla.get("#{namespace(opts)}/saved/searches/#{name}/history", query: [output_mode: "json"]) do
       {:ok, response} ->
         {:ok, response}
 
@@ -72,9 +72,18 @@ defmodule OffBroadway.Splunk.SplunkClient do
     {ack_ref, opts} = Keyword.pop(opts, :ack_ref)
 
     client(opts)
-    |> Tesla.get("/services/search/#{version}/jobs/#{sid}/results")
+    |> Tesla.get("#{namespace(opts)}/search/#{version}/jobs/#{sid}/results")
     |> log_api_messages()
     |> wrap_received_messages(sid, ack_ref)
+  end
+
+  @spec namespace(Keyword.t()) :: String.t()
+  defp namespace(opts) do
+    if Keyword.get(opts, :use_wildcard_namespace, false) do
+      "/servicesNS/-/-"
+    else
+      "/services"
+    end
   end
 
   @impl Acknowledger

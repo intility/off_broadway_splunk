@@ -431,7 +431,7 @@ defmodule OffBroadway.Splunk.ProducerTest do
                 ]
               ]} = prepare_for_start_module_opts(name: "My fine report")
 
-      assert result_module_opts[:config] == [api_version: "v2"]
+      assert result_module_opts[:config] == [use_wildcard_namespace: false, api_version: "v2"]
     end
 
     test ":config when :api_version is invalid" do
@@ -465,6 +465,7 @@ defmodule OffBroadway.Splunk.ProducerTest do
                )
 
       assert result_module_opts[:config] == [
+               use_wildcard_namespace: false,
                base_url: "https://api.splunk.example.com",
                api_token: "super-secret",
                api_version: "v1"
