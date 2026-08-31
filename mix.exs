@@ -51,18 +51,18 @@ defmodule OffBroadway.Splunk.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:broadway, "~> 1.0"},
+      {:broadway, "~> 1.3"},
       {:credo, "~> 1.7", only: [:dev, :test]},
       {:dialyxir, ">= 0.0.0", only: [:dev, :test], runtime: false},
       {:decimal, "~> 3.1"},
-      {:excoveralls, "~> 0.18.0", only: :test},
-      {:ex_doc, "~> 0.30", only: [:dev, :test], runtime: false},
-      {:exconstructor, "~> 1.2"},
-      {:hackney, "~> 1.18", optional: true},
+      {:excoveralls, "~> 0.18", only: :test},
+      {:ex_doc, "~> 0.40", only: [:dev, :test], runtime: false},
+      {:exconstructor, "~> 1.3"},
+      {:hackney, "~> 4.7", optional: true},
       {:jason, ">= 1.0.0"},
-      {:nimble_options, "~> 0.4 or ~> 0.5 or ~> 1.0"},
-      {:telemetry, "~> 1.1 or ~> 1.2"},
-      {:tesla, "~> 1.4 or ~> 1.5"}
+      {:nimble_options, "~> 1.1"},
+      {:telemetry, "~> 1.4"},
+      {:tesla, "~> 1.21"}
     ]
   end
 end
