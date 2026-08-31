@@ -51,11 +51,11 @@ defmodule OffBroadway.Splunk.SplunkClient do
 
   @impl true
   def receive_status(name, opts) do
-    case client(opts)
-         |> Tesla.get("#{namespace(opts)}/saved/searches/#{name}/history", query: [output_mode: "json"]) do
-      {:ok, response} ->
-        {:ok, response}
-
+    with {:ok, ns} <- status_namespace(name, opts),
+         {:ok, response} <-
+           client(opts) |> Tesla.get("#{ns}/saved/searches/#{name}/history", query: [output_mode: "json"]) do
+      {:ok, response}
+    else
       {:error, reason} ->
         Logger.error(
           "Unable to fetch status for \"#{name}\". " <>
@@ -72,13 +72,39 @@ defmodule OffBroadway.Splunk.SplunkClient do
     {ack_ref, opts} = Keyword.pop(opts, :ack_ref)
 
     client(opts)
-    |> Tesla.get("#{namespace(opts)}/search/#{version}/jobs/#{sid}/results")
+    |> Tesla.get("#{messages_namespace(opts)}/search/#{version}/jobs/#{sid}/results")
     |> log_api_messages()
     |> wrap_received_messages(sid, ack_ref)
   end
 
-  @spec namespace(Keyword.t()) :: String.t()
-  defp namespace(opts) do
+  # Splunk rejects wildcarded owner/app on the saved-search history sub-resource, so a
+  # concrete app must be resolved first when wildcarding is requested.
+  @spec status_namespace(String.t(), Keyword.t()) :: {:ok, String.t()} | {:error, any()}
+  defp status_namespace(name, opts) do
+    if Keyword.get(opts, :use_wildcard_namespace, false) do
+      resolve_app_namespace(name, opts)
+    else
+      {:ok, "/services"}
+    end
+  end
+
+  @spec resolve_app_namespace(String.t(), Keyword.t()) :: {:ok, String.t()} | {:error, any()}
+  defp resolve_app_namespace(name, opts) do
+    case client(opts) |> Tesla.get("/servicesNS/-/-/saved/searches/#{name}", query: [output_mode: "json"]) do
+      {:ok, %Tesla.Env{status: 200, body: %{"entry" => [%{"acl" => %{"app" => app}} | _]}}} ->
+        {:ok, "/servicesNS/nobody/#{app}"}
+
+      {:ok, %Tesla.Env{status: status}} ->
+        {:error, {:http_error, status}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # Splunk's job-results endpoint has no wildcard restriction, so no app resolution is needed.
+  @spec messages_namespace(Keyword.t()) :: String.t()
+  defp messages_namespace(opts) do
     if Keyword.get(opts, :use_wildcard_namespace, false) do
       "/servicesNS/-/-"
     else
